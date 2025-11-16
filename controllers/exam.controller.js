@@ -77,3 +77,197 @@ export const createExam = async (req, res) => {
         return res.status(500).send({ message: error.message });
     }
 };
+
+// Get exam by ID
+export const getExamById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.userId;
+        const role = req.role;
+
+        const exam = await ExamModel.findOne({
+            where: { id },
+            include: [
+                {
+                    model: ClassesModel,
+                    as: 'class',
+                    attributes: ['id', 'className', 'classCode']
+                }
+            ]
+        });
+
+        if (!exam) {
+            return res.status(404).send({ message: 'Exam not found' });
+        }
+
+        // Teacher can only see their own exams
+        if (role === 'teacher' && exam.created_by !== userId) {
+            return res.status(403).send({ 
+                message: 'You do not have permission to view this exam' 
+            });
+        }
+
+        return res.status(200).send(exam);
+
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
+};
+
+// Get all exams (by class or all for teacher)
+export const getExams = async (req, res) => {
+    try {
+        const userId = req.userId;
+        const role = req.role;
+        const { class_id } = req.query;
+
+        let whereCondition = {};
+
+        if (role === 'teacher') {
+            // Teacher can only see exams they created
+            whereCondition.created_by = userId;
+            
+            // Filter by class if provided
+            if (class_id) {
+                whereCondition.class_id = class_id;
+            }
+        }
+
+        const exams = await ExamModel.findAll({
+            where: whereCondition,
+            include: [
+                {
+                    model: ClassesModel,
+                    as: 'class',
+                    attributes: ['id', 'className', 'classCode']
+                }
+            ],
+            order: [['created_at', 'DESC']]
+        });
+
+        return res.status(200).send(exams);
+
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
+};
+
+// Update exam
+export const updateExam = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.userId;
+        const {
+            title,
+            des,
+            total_score,
+            minutes,
+            start_time,
+            end_time,
+            is_paid,
+            fee,
+            is_public
+        } = req.body;
+
+        // Find exam
+        const exam = await ExamModel.findOne({
+            where: { id }
+        });
+
+        if (!exam) {
+            return res.status(404).send({ message: 'Exam not found' });
+        }
+
+        // Check if user is the creator
+        if (exam.created_by !== userId) {
+            return res.status(403).send({ 
+                message: 'You do not have permission to update this exam' 
+            });
+        }
+
+        // Validate dates if provided
+        if (start_time || end_time) {
+            const startDate = start_time ? new Date(start_time) : new Date(exam.start_time);
+            const endDate = end_time ? new Date(end_time) : new Date(exam.end_time);
+
+            if (startDate >= endDate) {
+                return res.status(400).send({ 
+                    message: 'End time must be after start time' 
+                });
+            }
+        }
+
+        // Validate fee if is_paid is true
+        const finalIsPaid = is_paid !== undefined ? is_paid : exam.is_paid;
+        if (finalIsPaid && (!fee || fee <= 0)) {
+            return res.status(400).send({ 
+                message: 'Fee is required when is_paid is true' 
+            });
+        }
+
+        // Update exam
+        const updateData = {};
+        if (title !== undefined) updateData.title = title;
+        if (des !== undefined) updateData.des = des;
+        if (total_score !== undefined) updateData.total_score = total_score;
+        if (minutes !== undefined) updateData.minutes = minutes;
+        if (start_time !== undefined) updateData.start_time = new Date(start_time);
+        if (end_time !== undefined) updateData.end_time = new Date(end_time);
+        if (is_paid !== undefined) updateData.is_paid = is_paid;
+        if (fee !== undefined) updateData.fee = finalIsPaid ? fee : 0;
+        if (is_public !== undefined) updateData.is_public = is_public;
+
+        await exam.update(updateData);
+
+        // Return updated exam
+        const updatedExam = await ExamModel.findOne({
+            where: { id },
+            include: [
+                {
+                    model: ClassesModel,
+                    as: 'class',
+                    attributes: ['id', 'className', 'classCode']
+                }
+            ]
+        });
+
+        return res.status(200).send(updatedExam);
+
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
+};
+
+// Delete exam
+export const deleteExam = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.userId;
+
+        // Find exam
+        const exam = await ExamModel.findOne({
+            where: { id }
+        });
+
+        if (!exam) {
+            return res.status(404).send({ message: 'Exam not found' });
+        }
+
+        // Check if user is the creator
+        if (exam.created_by !== userId) {
+            return res.status(403).send({ 
+                message: 'You do not have permission to delete this exam' 
+            });
+        }
+
+        // Delete exam
+        await exam.destroy();
+
+        return res.status(200).send({ 
+            message: 'Exam deleted successfully' 
+        });
+
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
+};
