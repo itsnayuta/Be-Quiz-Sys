@@ -1,6 +1,8 @@
 import UserModel from "./user.model.js";
 import ClassesModel from "./classes.model.js";
 import ClassStudentModel from "./class_student.model.js";
+import ExamModel from "./exam.model.js";
+
 // User(Teacher) 1-N Classes
 UserModel.hasMany(ClassesModel, {
   foreignKey: 'teacher_id', 
@@ -27,5 +29,26 @@ ClassesModel.belongsToMany(UserModel,{
   as: 'students'
 });
 
+// Classes 1-N Exams
+ClassesModel.hasMany(ExamModel, {
+  foreignKey: 'class_id',
+  as: 'exams'
+});
 
-export { UserModel, ClassesModel, ClassStudentModel };
+ExamModel.belongsTo(ClassesModel, {
+  foreignKey: 'class_id',
+  as: 'class'
+});
+
+// User(Teacher) 1-N Exams
+UserModel.hasMany(ExamModel, {
+  foreignKey: 'created_by',
+  as: 'createdExams'
+});
+
+ExamModel.belongsTo(UserModel, {
+  foreignKey: 'created_by',
+  as: 'creator'
+});
+
+export { UserModel, ClassesModel, ClassStudentModel, ExamModel };
