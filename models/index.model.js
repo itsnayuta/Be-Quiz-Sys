@@ -4,7 +4,7 @@ import ClassesModel from "./classes.model.js";
 // Đảm bảo các mối quan hệ được định nghĩa đúng
 UserModel.hasMany(ClassesModel, {
   foreignKey: 'teacher_id',  // Khóa ngoại trong bảng Classes
-  as: 'taughtClasses'        // Alias để truy cập các lớp dạy
+  as: 'classes'        // Alias để truy cập các lớp dạy
 });
 
 ClassesModel.belongsTo(UserModel, {

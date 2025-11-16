@@ -21,20 +21,25 @@ export const createClass = async (req, res) => {
     }
 };
 
+// Get list class for teacher
+
 export const getClasses = async (req, res) => {
     const teacher_id = req.userId;
 
     try {
-        const taughtClasses = await ClassesModel.findAll({
+        const taughtClasses = await UserModel.findOne({
             where: {
-                teacher_id: teacher_id
+                id: teacher_id
             },
             include: [
                 {
-                    model: UserModel,
-                    as: 'teacher' // Sử dụng alias 'teacher' trong include
+                    model: ClassesModel,
+                    as: 'classes' // 'teacher' ,
+                
+
                 }
-            ]
+            ],
+            attributes: ['id','fullName','role','email']
         });
 
         return res.status(200).send(taughtClasses);
@@ -43,3 +48,7 @@ export const getClasses = async (req, res) => {
         res.status(500).send({ message: error.message });
     }
 };
+
+// join class
+
+// export const joinClass = async (req,res)

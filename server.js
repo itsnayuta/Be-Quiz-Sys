@@ -7,6 +7,9 @@ import sequelize from "./config/db.config.js";
 
 import authRoutes from "./routes/auth.routes.js";
 import authClasses from "./routes/classes.routes.js";
+import authUser from "./routes/user.routes.js";
+
+
 const app = express()
 
 //app.use(cors());
@@ -20,7 +23,7 @@ sequelize.sync().then(()=>{
 
 authRoutes(app);
 authClasses(app)
-
+authUser(app)
 
 const PORT  =process.env.PORT || 5005;
 app.listen(PORT, () => {
