@@ -161,3 +161,50 @@ export const GetStudentFromClass = async (req,res) => {
         return res.status(500).send({message: error.message})
     }
 }
+
+
+export const BanStudent = async(req,res) => {
+    try{
+
+        const {classId,student_id} = req.body;
+
+        const classStudent = await ClassStudentModel.findOne({
+            where: {
+                class_id: classId,
+                student_id: student_id
+            }
+        })
+
+        classStudent.is_ban = true
+
+        await classStudent.save()
+
+        return res.status(200).send("Ban Successfully")
+        
+    }catch(error){
+        return res.status(500).send({message: error.message})
+    }
+}
+
+export const DeleteClass = async(req,res) => {
+    try{
+
+        const {classId} = req.body
+
+        const deletedClass = await ClassesModel.destroy({
+            where: {
+                id: classId
+            }
+        })
+
+        if (!deletedClass) {
+            return res.status(404).send({ message: "Class not found." });
+        }
+
+
+        return res.status(200).send("Delete Successfully")
+
+    }catch(error){
+        return res.status(500).send({message: message.error})
+    }
+}
