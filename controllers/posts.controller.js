@@ -1,5 +1,6 @@
 import { text } from "express";
 import {PostCommentsModel,PostClassesModel,UserModel,ClassesModel} from "../models/index.model.js";
+import { where } from "sequelize";
 
 
 // Create Post
@@ -46,12 +47,6 @@ export const GetPostsClass = async (req,res) => {
                 }
             ],
 
-            include:[
-                {
-                    model: PostCommentsModel,
-                    'as': 'comments'
-                }
-            ],
             order: [['created_at', 'DESC']]
         })
 
@@ -88,6 +83,33 @@ export const CreateCommentPost = async (req,res) => {
         })
 
         return res.status(200).send(result)
+        
+    }catch(error){
+        return res.status(500).send(error.message)
+    }
+}
+
+
+// Get Comment of A post
+export const GetCommentPost = async(req,res) => {
+    try{
+
+        const {postId} = req.params
+        
+
+        const comments = await PostCommentsModel.findAll({
+            where: {
+                post_id: postId
+            },
+
+            include: [{
+                model:UserModel,
+                'as': 'author',
+                attributes: ['fullName','email','role']
+            }]
+
+        })
+        return res.status(200).send(comments)
         
     }catch(error){
         return res.status(500).send(error.message)
