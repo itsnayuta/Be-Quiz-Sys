@@ -1,0 +1,186 @@
+import { Op } from "sequelize";
+import { ExamResultModel, ExamSessionModel, StudentAnswerModel, ExamModel, QuestionModel, QuestionAnswerModel } from "../models/index.model.js";
+
+const includeExamForSession = {
+  model: ExamModel,
+  as: "exam",
+  attributes: ["id", "title", "total_score", "minutes", "start_time", "end_time"],
+};
+
+const computeSessionScore = async (session, student_id) => {
+  const sessionWithExam = session.exam
+    ? session
+    : await ExamSessionModel.findOne({
+        where: { id: session.id },
+        include: [includeExamForSession],
+      });
+
+  if (!sessionWithExam || !sessionWithExam.exam) {
+    throw new Error("Exam information not found for session");
+  }
+
+  const studentAnswers = await StudentAnswerModel.findAll({
+    where: {
+      session_id: session.id,
+    },
+    include: [
+      {
+        model: QuestionModel,
+        as: "question",
+        attributes: ["id", "question_text", "type"],
+      },
+    ],
+  });
+
+  const allQuestions = await QuestionModel.findAll({
+    where: { exam_id: session.exam_id },
+    attributes: ["id"],
+  });
+
+  let totalScore = 0;
+  let correctCount = 0;
+  let wrongCount = 0;
+
+  for (const answer of studentAnswers) {
+    if (answer.score !== null && answer.score !== undefined) {
+      totalScore += parseFloat(answer.score);
+    }
+
+    if (answer.is_correct === true) {
+      correctCount++;
+    } else if (answer.is_correct === false) {
+      wrongCount++;
+    }
+  }
+
+  const answeredQuestionIds = studentAnswers.map((answer) => answer.exam_question_id);
+  const unansweredCount = allQuestions.length - answeredQuestionIds.length;
+
+  const examTotalScore = parseFloat(sessionWithExam.exam.total_score);
+  const percentage = examTotalScore > 0 ? (totalScore / examTotalScore) * 100 : 0;
+  const roundedPercentage = Math.round(percentage * 100) / 100;
+
+  const now = new Date();
+
+  await sessionWithExam.update({
+    status: "submitted",
+    submitted_at: now,
+    total_score: totalScore,
+  });
+
+  let examResult = await ExamResultModel.findOne({
+    where: { session_id: session.id },
+  });
+
+  if (examResult) {
+    await examResult.update({
+      total_score: totalScore,
+      correct_count: correctCount,
+      wrong_count: wrongCount,
+      percentage: roundedPercentage,
+      submitted_at: now,
+      status: "graded",
+    });
+  } else {
+    examResult = await ExamResultModel.create({
+      session_id: session.id,
+      student_id: student_id || sessionWithExam.student_id,
+      exam_id: session.exam_id,
+      total_score: totalScore,
+      correct_count: correctCount,
+      wrong_count: wrongCount,
+      percentage: roundedPercentage,
+      submitted_at: now,
+      status: "graded",
+      feedback: null,
+    });
+  }
+
+  const resultWithDetails = await ExamResultModel.findOne({
+    where: { id: examResult.id },
+    include: [
+      includeExamForSession,
+      {
+        model: ExamSessionModel,
+        as: "session",
+        attributes: ["id", "code", "start_time", "end_time", "submitted_at", "status"],
+      },
+    ],
+  });
+
+  return {
+    result: resultWithDetails,
+    summary: {
+      total_score: totalScore,
+      exam_total_score: examTotalScore,
+      correct_count: correctCount,
+      wrong_count: wrongCount,
+      unanswered_count: unansweredCount,
+      percentage: roundedPercentage,
+    },
+  };
+};
+
+export const finalizeSessionResult = async (session, student_id) => {
+  if (!session) {
+    throw new Error("Session not found");
+  }
+
+  if (session.status !== "in_progress") {
+    const existingResult = await ExamResultModel.findOne({
+      where: { session_id: session.id },
+      include: [includeExamForSession],
+    });
+
+    return {
+      result: existingResult,
+      summary: null,
+      alreadySubmitted: true,
+    };
+  }
+
+  const payload = await computeSessionScore(session, student_id);
+
+  return {
+    ...payload,
+    alreadySubmitted: false,
+  };
+};
+
+export const autoSubmitExpiredSessions = async () => {
+  const now = new Date();
+
+  const expiredSessions = await ExamSessionModel.findAll({
+    where: {
+      status: "in_progress",
+      end_time: {
+        [Op.lt]: now,
+      },
+    },
+    include: [includeExamForSession],
+  });
+
+  for (const session of expiredSessions) {
+    try {
+      await computeSessionScore(session, session.student_id);
+    } catch (error) {
+      console.error(`Auto submit failed for session ${session.id}:`, error.message);
+    }
+  }
+};
+
+let autoSubmitInterval = null;
+
+export const startAutoSubmitScheduler = (intervalMs = 60000) => {
+  if (autoSubmitInterval) {
+    return;
+  }
+
+  autoSubmitInterval = setInterval(() => {
+    autoSubmitExpiredSessions().catch((error) => {
+      console.error("Auto submit scheduler error:", error.message);
+    });
+  }, intervalMs);
+};
+
+
