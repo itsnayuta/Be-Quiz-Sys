@@ -12,6 +12,7 @@ import authUser from "./routes/user.routes.js";
 import examRoutes from "./routes/exam.routes.js";
 import questionRoutes from "./routes/question.routes.js";
 import questionAnswerRoutes from "./routes/question_answer.routes.js";
+import examFavoriteRoutes from "./routes/exam_favorite.routes.js";
 
 const app = express()
 
@@ -30,6 +31,7 @@ authUser(app)
 examRoutes(app)
 questionRoutes(app)
 questionAnswerRoutes(app)
+examFavoriteRoutes(app)
 const PORT  =process.env.PORT || 5005;
 app.listen(PORT, () => {
     console.log(`Server đang chạy trên cổng ${PORT}`)

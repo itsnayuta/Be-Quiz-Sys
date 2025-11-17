@@ -4,6 +4,7 @@ import ClassStudentModel from "./class_student.model.js";
 import ExamModel from "./exam.model.js";
 import QuestionModel from "./question.model.js";
 import QuestionAnswerModel from "./question_answer.model.js";
+import ExamFavoriteModel from "./exam_favorite.model.js";
 
 // User(Teacher) 1-N Classes
 UserModel.hasMany(ClassesModel, {
@@ -88,4 +89,29 @@ QuestionAnswerModel.belongsTo(QuestionModel, {
   as: 'question'
 });
 
-export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel };
+// User N-N Exams through Exam_favorites (Favorite exams)
+UserModel.belongsToMany(ExamModel, {
+  through: ExamFavoriteModel,
+  foreignKey: 'user_id',
+  otherKey: 'exam_id',
+  as: 'favoriteExams'
+});
+
+ExamModel.belongsToMany(UserModel, {
+  through: ExamFavoriteModel,
+  foreignKey: 'exam_id',
+  otherKey: 'user_id',
+  as: 'favoritedBy'
+});
+
+ExamFavoriteModel.belongsTo(UserModel, {
+  foreignKey: 'user_id',
+  as: 'user'
+});
+
+ExamFavoriteModel.belongsTo(ExamModel, {
+  foreignKey: 'exam_id',
+  as: 'exam'
+});
+
+export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel };
