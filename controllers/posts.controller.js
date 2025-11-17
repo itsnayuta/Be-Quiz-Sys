@@ -55,13 +55,32 @@ export const GetPostsClass = async (req,res) => {
     }
 }
 
-export const CreateCommentClass = async (req,res) => {
+
+// Create Comment
+export const CreateCommentPost = async (req,res) => {
     try{
 
         const userId = req.userId;
-        const {classId,postId,commentId} = req.body;
+        const {postId,comment} = req.body
 
-        
+        const createdComment = await PostCommentsModel.create({
+            post_id: postId,
+            user_id: userId,
+            text: comment
+
+        })
+
+        const result = await PostCommentsModel.findByPk(createdComment.id,{
+            
+            include:[{
+                model:UserModel,
+                as: 'author',
+                attributes: ['fullName']
+            }],
+            
+        })
+
+        return res.status(200).send(result)
         
     }catch(error){
         return res.status(500).send(error.message)
