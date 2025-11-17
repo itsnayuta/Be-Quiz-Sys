@@ -2,6 +2,8 @@ import UserModel from "./user.model.js";
 import ClassesModel from "./classes.model.js";
 import ClassStudentModel from "./class_student.model.js";
 import ExamModel from "./exam.model.js";
+import QuestionModel from "./question.model.js";
+import QuestionAnswerModel from "./question_answer.model.js";
 
 // User(Teacher) 1-N Classes
 UserModel.hasMany(ClassesModel, {
@@ -51,4 +53,37 @@ ExamModel.belongsTo(UserModel, {
   as: 'creator'
 });
 
-export { UserModel, ClassesModel, ClassStudentModel, ExamModel };
+// Exams 1-N Questions
+ExamModel.hasMany(QuestionModel, {
+  foreignKey: 'exam_id',
+  as: 'questions'
+});
+
+QuestionModel.belongsTo(ExamModel, {
+  foreignKey: 'exam_id',
+  as: 'exam'
+});
+
+// User(Teacher) 1-N Questions
+UserModel.hasMany(QuestionModel, {
+  foreignKey: 'teacher_id',
+  as: 'questions'
+});
+
+QuestionModel.belongsTo(UserModel, {
+  foreignKey: 'teacher_id',
+  as: 'teacher'
+});
+
+// Questions 1-N Question_answers
+QuestionModel.hasMany(QuestionAnswerModel, {
+  foreignKey: 'question_id',
+  as: 'answers'
+});
+
+QuestionAnswerModel.belongsTo(QuestionModel, {
+  foreignKey: 'question_id',
+  as: 'question'
+});
+
+export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel };
