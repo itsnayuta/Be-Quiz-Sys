@@ -4,10 +4,15 @@ import ClassStudentModel from "./class_student.model.js";
 import ExamModel from "./exam.model.js";
 import QuestionModel from "./question.model.js";
 import QuestionAnswerModel from "./question_answer.model.js";
+<<<<<<< Updated upstream
 import ExamFavoriteModel from "./exam_favorite.model.js";
 import ExamCommentModel from "./exam_comment.model.js";
 import ExamSessionModel from "./exam_session.model.js";
 import StudentAnswerModel from "./student_answer.model.js";
+=======
+import PostClassesModel from "./post_classes.model.js";
+import PostCommentsModel from "./post_comments.model.js";
+>>>>>>> Stashed changes
 
 // User(Teacher) 1-N Classes
 UserModel.hasMany(ClassesModel, {
@@ -41,6 +46,46 @@ ClassesModel.hasMany(ExamModel, {
   as: 'exams',
   onDelete: 'SET NULL'
 });
+
+//User(1-N) PostClasses
+UserModel.hasMany(PostClassesModel,{
+  foreignKey: 'user_id',
+  as: 'posts'
+})
+PostClassesModel.belongsTo(UserModel,{
+  foreignKey: 'user_id',
+  as: 'user'
+})
+
+//Classes (1-N) Post
+ClassesModel.hasMany(PostClassesModel,{
+  foreignKey:'class_id',
+  as: 'postsClasses'
+})
+PostClassesModel.belongsTo(ClassesModel,{
+  foreignKey: 'class_id',
+  'as' :'classes'
+})
+
+//User (1-N) Post Comment
+UserModel.hasMany(PostCommentsModel,{
+  foreignKey:'user_id',
+  as: 'postComments'
+})
+PostCommentsModel.belongsTo(UserModel,{
+  foreignKey:'user_id',
+  as: 'userPost'
+})
+
+//Classes (1-N) Post Comment
+ClassesModel.hasMany(PostCommentsModel,{
+  foreignKey:'class_id',
+  as: 'class_ports_comment'
+})
+PostCommentsModel.belongsTo(ClassesModel,{
+  foreignKey:'class_id',
+  as: 'ports_comment_class'
+})
 
 ExamModel.belongsTo(ClassesModel, {
   foreignKey: 'class_id',
@@ -92,6 +137,7 @@ QuestionAnswerModel.belongsTo(QuestionModel, {
   as: 'question'
 });
 
+<<<<<<< Updated upstream
 // User N-N Exams through Exam_favorites (Favorite exams)
 UserModel.belongsToMany(ExamModel, {
   through: ExamFavoriteModel,
@@ -206,3 +252,6 @@ StudentAnswerModel.belongsTo(QuestionAnswerModel, {
 });
 
 export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel };
+=======
+export { UserModel, ClassesModel, ClassStudentModel,PostClassesModel,PostCommentsModel, ExamModel, QuestionModel, QuestionAnswerModel };
+>>>>>>> Stashed changes
