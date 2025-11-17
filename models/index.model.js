@@ -31,15 +31,17 @@ ClassesModel.belongsToMany(UserModel,{
   as: 'students'
 });
 
-// Classes 1-N Exams
+// Classes 1-N Exams (class_id có thể null)
 ClassesModel.hasMany(ExamModel, {
   foreignKey: 'class_id',
-  as: 'exams'
+  as: 'exams',
+  onDelete: 'SET NULL'
 });
 
 ExamModel.belongsTo(ClassesModel, {
   foreignKey: 'class_id',
-  as: 'class'
+  as: 'class',
+  onDelete: 'SET NULL'
 });
 
 // User(Teacher) 1-N Exams

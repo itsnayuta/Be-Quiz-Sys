@@ -9,7 +9,7 @@ const ExamModel = sequelize.define('Exams', {
     },
     class_id: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true, // Cho phép null nếu exam là public
         references: {
             model: 'Classes',
             key: 'id'

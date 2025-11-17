@@ -18,24 +18,26 @@ export const createExam = async (req, res) => {
         const created_by = req.userId; // Get from middleware
 
         // Validate required fields
-        if (!class_id || !title || !minutes || !start_time || !end_time) {
+        if (!title || !minutes || !start_time || !end_time) {
             return res.status(400).send({ 
-                message: 'Missing required fields: class_id, title, minutes, start_time, end_time' 
+                message: 'Missing required fields: title, minutes, start_time, end_time' 
             });
         }
 
-        // Validate that the class exists and belongs to the teacher
-        const classInfo = await ClassesModel.findOne({
-            where: {
-                id: class_id,
-                teacher_id: created_by
-            }
-        });
-
-        if (!classInfo) {
-            return res.status(404).send({ 
-                message: 'Class not found or you do not have permission to create exam for this class' 
+        // Validate class chỉ khi có class_id (class_id có thể null)
+        if (class_id) {
+            const classInfo = await ClassesModel.findOne({
+                where: {
+                    id: class_id,
+                    teacher_id: created_by
+                }
             });
+
+            if (!classInfo) {
+                return res.status(404).send({ 
+                    message: 'Class not found or you do not have permission to create exam for this class' 
+                });
+            }
         }
 
         // Validate dates
@@ -57,7 +59,7 @@ export const createExam = async (req, res) => {
 
         // Create exam
         const exam = await ExamModel.create({
-            class_id,
+            class_id: class_id || null, // Cho phép null (có thể gắn vào class sau)
             title,
             des: des || null,
             total_score: total_score || 100,
@@ -158,6 +160,7 @@ export const updateExam = async (req, res) => {
         const { id } = req.params;
         const userId = req.userId;
         const {
+            class_id,
             title,
             des,
             total_score,
@@ -205,8 +208,28 @@ export const updateExam = async (req, res) => {
             });
         }
 
+        // Validate class_id nếu được cung cấp (cho phép null để bỏ gắn exam)
+        if (class_id !== undefined) {
+            // Nếu set class_id = null, cho phép (để bỏ gắn exam khỏi class)
+            if (class_id !== null) {
+                const classInfo = await ClassesModel.findOne({
+                    where: {
+                        id: class_id,
+                        teacher_id: userId
+                    }
+                });
+
+                if (!classInfo) {
+                    return res.status(404).send({ 
+                        message: 'Class not found or you do not have permission to assign exam to this class' 
+                    });
+                }
+            }
+        }
+
         // Update exam
         const updateData = {};
+        if (class_id !== undefined) updateData.class_id = class_id; // Cho phép set null để bỏ gắn exam
         if (title !== undefined) updateData.title = title;
         if (des !== undefined) updateData.des = des;
         if (total_score !== undefined) updateData.total_score = total_score;
