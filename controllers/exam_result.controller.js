@@ -1,4 +1,6 @@
-import { ExamResultModel, ExamSessionModel, StudentAnswerModel, ExamModel, QuestionModel, QuestionAnswerModel, UserModel } from "../models/index.model.js";
+import { Op } from "sequelize";
+import sequelize from "../config/db.config.js";
+import { ExamResultModel, ExamSessionModel, StudentAnswerModel, ExamModel, QuestionModel, QuestionAnswerModel, UserModel, ClassStudentModel } from "../models/index.model.js";
 import { finalizeSessionResult } from "../services/exam_result.service.js";
 
 // Submit bài thi (nộp bài và tính điểm)
@@ -223,6 +225,166 @@ export const getExamResults = async (req, res) => {
             total_submissions: results.length
         });
 
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
+};
+
+// So sánh kết quả của student với lớp và toàn bộ người làm đề
+export const getStudentComparison = async (req, res) => {
+    try {
+        const { exam_id } = req.params;
+        const student_id = req.userId;
+
+        const studentResult = await ExamResultModel.findOne({
+            where: {
+                exam_id: exam_id,
+                student_id: student_id
+            },
+            include: [
+                {
+                    model: ExamModel,
+                    as: 'exam',
+                    attributes: ['id', 'title', 'total_score', 'class_id']
+                }
+            ]
+        });
+
+        if (!studentResult) {
+            return res.status(404).send({
+                message: 'Result not found. Submit the exam first.'
+            });
+        }
+
+        const studentScore = Number(studentResult.total_score);
+
+        const [globalAggregate] = await ExamResultModel.findAll({
+            where: { exam_id: exam_id },
+            attributes: [
+                [sequelize.fn('COUNT', sequelize.col('Exam_results.id')), 'total'],
+                [sequelize.fn('AVG', sequelize.col('total_score')), 'average_score'],
+                [sequelize.fn('MAX', sequelize.col('total_score')), 'best_score'],
+                [sequelize.fn('MIN', sequelize.col('total_score')), 'lowest_score']
+            ],
+            raw: true
+        });
+
+        const globalTotal = Number(globalAggregate?.total ?? 0);
+        const globalAverage = globalAggregate?.average_score ? Number(globalAggregate.average_score) : 0;
+        const globalBest = globalAggregate?.best_score ? Number(globalAggregate.best_score) : 0;
+        const globalLowest = globalAggregate?.lowest_score ? Number(globalAggregate.lowest_score) : 0;
+
+        const globalHigher = await ExamResultModel.count({
+            where: {
+                exam_id: exam_id,
+                total_score: { [Op.gt]: studentScore }
+            }
+        });
+
+        const globalRank = globalHigher + 1;
+        const globalPercentile = globalTotal > 0 ? Number((((globalTotal - globalRank) / globalTotal) * 100).toFixed(2)) : null;
+
+        let classComparison = {
+            available: false,
+            reason: 'Exam is not attached to any class.'
+        };
+
+        const examClassId = studentResult.exam?.class_id || null;
+
+        if (examClassId) {
+            const classStudents = await ClassStudentModel.findAll({
+                where: {
+                    class_id: examClassId,
+                    is_ban: false
+                },
+                attributes: ['student_id'],
+                raw: true
+            });
+
+            const classStudentIds = classStudents.map((row) => row.student_id);
+            const belongsToClass = classStudentIds.includes(student_id);
+
+            if (!belongsToClass) {
+                classComparison = {
+                    available: false,
+                    reason: 'You are not part of this class.'
+                };
+            } else if (classStudentIds.length === 0) {
+                classComparison = {
+                    available: false,
+                    reason: 'No students found in this class.'
+                };
+            } else {
+                const classFilter = {
+                    exam_id: exam_id,
+                    student_id: { [Op.in]: classStudentIds }
+                };
+
+                const classTotal = await ExamResultModel.count({ where: classFilter });
+
+                if (classTotal === 0) {
+                    classComparison = {
+                        available: false,
+                        reason: 'No classmate has submitted this exam yet.'
+                    };
+                } else {
+                    const classHigher = await ExamResultModel.count({
+                        where: {
+                            ...classFilter,
+                            total_score: { [Op.gt]: studentScore }
+                        }
+                    });
+
+                    const [classAggregate] = await ExamResultModel.findAll({
+                        where: classFilter,
+                        attributes: [
+                            [sequelize.fn('AVG', sequelize.col('total_score')), 'average_score'],
+                            [sequelize.fn('MAX', sequelize.col('total_score')), 'best_score']
+                        ],
+                        raw: true
+                    });
+
+                    const classRank = classHigher + 1;
+                    const classPercentile = Number((((classTotal - classRank) / classTotal) * 100).toFixed(2));
+
+                    classComparison = {
+                        available: true,
+                        rank: classRank,
+                        total: classTotal,
+                        percentile: classPercentile,
+                        average_score: classAggregate?.average_score ? Number(classAggregate.average_score) : 0,
+                        best_score: classAggregate?.best_score ? Number(classAggregate.best_score) : 0
+                    };
+                }
+            }
+        }
+
+        return res.status(200).send({
+            exam: {
+                id: studentResult.exam.id,
+                title: studentResult.exam.title,
+                class_id: studentResult.exam.class_id,
+                total_score: studentResult.exam.total_score
+            },
+            student: {
+                id: studentResult.student_id,
+                score: studentScore,
+                correct_count: studentResult.correct_count,
+                wrong_count: studentResult.wrong_count,
+                submitted_at: studentResult.submitted_at
+            },
+            comparison: {
+                global: {
+                    rank: globalRank,
+                    total: globalTotal,
+                    percentile: globalPercentile,
+                    average_score: globalAverage,
+                    best_score: globalBest,
+                    lowest_score: globalLowest
+                },
+                class: classComparison
+            }
+        });
     } catch (error) {
         return res.status(500).send({ message: error.message });
     }

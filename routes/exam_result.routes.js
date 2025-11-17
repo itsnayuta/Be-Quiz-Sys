@@ -3,7 +3,8 @@ import {
     getResult, 
     getStudentResults,
     getExamResults,
-    updateFeedback
+    updateFeedback,
+    getStudentComparison
 } from "../controllers/exam_result.controller.js";
 import { verifyToken, verifyStudent, verifyTeacher } from "../middleware/authJWT.js";
 
@@ -19,6 +20,9 @@ const examResultRoutes = (app) => {
     
     // Lấy tất cả kết quả của một exam (cho teacher) - chỉ teacher
     app.get('/api/exams/:exam_id/results', verifyToken, verifyTeacher, getExamResults);
+
+    // So sánh kết quả của student với lớp và tất cả mọi người cùng làm exam - chỉ student
+    app.get('/api/exams/:exam_id/my-comparison', verifyToken, verifyStudent, getStudentComparison);
     
     // Teacher cập nhật feedback cho exam result - chỉ teacher
     app.put('/api/exam-results/:result_id/feedback', verifyToken, verifyTeacher, updateFeedback);
