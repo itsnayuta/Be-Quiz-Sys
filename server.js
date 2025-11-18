@@ -23,7 +23,11 @@ import notificationRoutes from "./routes/notification.routes.js";
 import postRoutes from "./routes/posts.routes.js";
 const app = express()
 
-//app.use(cors());
+app.use(cors({
+    origin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    credentials: true,
+}));
 app.use(express.json())
 app.use(express.urlencoded({extended:true}))
 
