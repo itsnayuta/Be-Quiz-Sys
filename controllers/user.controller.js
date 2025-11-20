@@ -73,6 +73,8 @@ export const UpdateProfileInfo = async (req,res) => {
 
 }
 
+// note:
+
 export const ChangePassword = async(req,res) => {
     try{
 
@@ -82,24 +84,20 @@ export const ChangePassword = async(req,res) => {
 
         const userInfo = await UserModel.findOne({where:{id: userId}})
 
-        if(!userInfo){
-            return res.status(404).send("User not found");
-        }
 
-        //check password
         if(currentPassword !== userInfo.password){
-            return res.status(403).send("Password not match");
+            return res.status(403).send({status: false, message: "Password not match"});
         }
 
         userInfo.password = newPassword;
 
         await userInfo.save()
 
-        return res.status(200).send("Update password success")
+        return res.status(200).send({status: true, message: "Đổi mật khẩu thành công"})
 
         
 
     }catch(error){
-        return res.status(500).send({message: error.message})
+        return res.status(500).send({status:false, message: error.message})
     }
 }
