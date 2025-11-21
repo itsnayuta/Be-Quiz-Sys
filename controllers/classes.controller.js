@@ -23,54 +23,65 @@ export const createClass = async (req, res) => {
 };
 
 // Get list class for teacher and student
-
 export const getClasses = async (req, res) => {
-    
-
     try {
         const userId = req.userId;
         const role = req.role;
+        const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+        const offset = req.query.offset ? parseInt(req.query.offset) : 0;
 
-        if(role === 'teacher'){
-            const taughtClasses = await UserModel.findOne({
+        const teacherInclude = {
+            model: UserModel,
+            as: 'teacher',
+            attributes: ['fullName'] 
+        };
+
+        let result;
+
+        if (role === 'teacher') {
+           
+            result = await ClassesModel.findAndCountAll({
                 where: {
-                    id: userId
+                    teacher_id: userId
                 },
+                limit: limit,
+                offset: offset,
+           
+      
+            });
+        } else {
+          
+            result = await ClassesModel.findAndCountAll({
+                limit: limit,
+                offset: offset,
                 include: [
                     {
-                        model: ClassesModel,
-                        as: 'classes' // 'teacher' ,
-                    
+                        model: UserModel,
+                        as: 'students',
+                        where: {
+                            id: userId 
+                        },
+                        attributes: [] 
                     }
                 ],
-                attributes: ['id','fullName','role','email']
+                include:teacherInclude
+                
             });
-    
-            return res.status(200).send(taughtClasses);
-
         }
 
-        else{
-            const joinedClass = await UserModel.findOne({
-                where: {
-                    id: userId,
-                },
-                include: [
-                    {
-                        model: ClassesModel,
-                        as: 'joinedClasses' // 'teacher' ,
-                    
-                    }
-                ],
-                attributes: ['id','fullName','role','email']
-            });
-    
-            return res.status(200).send(joinedClass);
-        };
-        
+        return res.status(200).send({ 
+            status: true, 
+            data: result.rows, 
+            total: result.count,
+            pagination: {
+                limit,
+                offset
+            }
+        });
 
     } catch (error) {
-        res.status(500).send({ message: error.message });
+        console.error(error);
+        res.status(500).send({ status: false, message: error.message });
     }
 };
 

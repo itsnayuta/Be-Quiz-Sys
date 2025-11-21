@@ -7,6 +7,8 @@ export const GetProfileInfo = async (req,res) => {
 
         const userId = req.userId;
 
+        
+
         const userInfor = await UserModel.findOne({
             where: {
                 id: userId
