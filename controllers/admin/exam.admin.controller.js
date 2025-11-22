@@ -1,4 +1,4 @@
-import { ExamModel, UserModel, QuestionModel, ExamResultModel, ExamPurchaseModel, ClassesModel } from "../../models/index.model.js";
+import { ExamModel, UserModel, QuestionModel, QuestionAnswerModel, ExamResultModel, ExamPurchaseModel, ClassesModel } from "../../models/index.model.js";
 import { Op } from "sequelize";
 import sequelize from "../../config/db.config.js";
 
@@ -124,7 +124,7 @@ export const getExamById = async (req, res) => {
                     model: QuestionModel,
                     as: 'questions',
                     include: [{
-                        model: require('../../models/index.model.js').QuestionAnswerModel,
+                        model: QuestionAnswerModel,
                         as: 'answers'
                     }]
                 }
