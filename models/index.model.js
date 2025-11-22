@@ -14,6 +14,8 @@ import ExamResultModel from "./exam_result.model.js";
 import NotificationModel from "./notification.model.js";
 import RecentLoginModel from "./recent_login.model.js";
 import ExamPurchaseModel from "./exam_purchase.model.js";
+import ExamCheatingLogModel from "./exam_cheating_log.model.js";
+import StudentExamStatusModel from "./student_exam_status.model.js";
 
 // User(Teacher) 1-N Classes
 UserModel.hasMany(ClassesModel, {
@@ -339,5 +341,67 @@ UserModel.hasMany(ExamPurchaseModel, {
   as: 'purchases'
 });
 
+// Exam_sessions 1-N Exam_cheating_logs
+ExamSessionModel.hasMany(ExamCheatingLogModel, {
+  foreignKey: 'session_id',
+  as: 'cheatingLogs'
+});
 
-export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel, ExamResultModel, PostClassesModel, PostCommentsModel, NotificationModel, RecentLoginModel, ExamPurchaseModel };
+ExamCheatingLogModel.belongsTo(ExamSessionModel, {
+  foreignKey: 'session_id',
+  as: 'session'
+});
+
+// User(Student) 1-N Exam_cheating_logs
+UserModel.hasMany(ExamCheatingLogModel, {
+  foreignKey: 'student_id',
+  as: 'cheatingLogs'
+});
+
+ExamCheatingLogModel.belongsTo(UserModel, {
+  foreignKey: 'student_id',
+  as: 'student'
+});
+
+// Exams 1-N Exam_cheating_logs
+ExamModel.hasMany(ExamCheatingLogModel, {
+  foreignKey: 'exam_id',
+  as: 'cheatingLogs'
+});
+
+ExamCheatingLogModel.belongsTo(ExamModel, {
+  foreignKey: 'exam_id',
+  as: 'exam'
+});
+
+// Student N-N Exams through Student_Exam_Status (Exam attempt tracking)
+UserModel.hasMany(StudentExamStatusModel, {
+  foreignKey: 'student_id',
+  as: 'examStatuses'
+});
+
+StudentExamStatusModel.belongsTo(UserModel, {
+  foreignKey: 'student_id',
+  as: 'student'
+});
+
+ExamModel.hasMany(StudentExamStatusModel, {
+  foreignKey: 'exam_id',
+  as: 'studentStatuses'
+});
+
+StudentExamStatusModel.belongsTo(ExamModel, {
+  foreignKey: 'exam_id',
+  as: 'exam'
+});
+
+// Exam_sessions 1-1 Student_Exam_Status (current session)
+// Note: Chỉ dùng belongsTo vì foreign key (current_session_id) nằm ở StudentExamStatusModel
+// Không dùng hasOne để tránh conflict với attribute 'status' của ExamSessionModel
+StudentExamStatusModel.belongsTo(ExamSessionModel, {
+  foreignKey: 'current_session_id',
+  as: 'currentSession'
+});
+
+
+export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel, ExamResultModel, PostClassesModel, PostCommentsModel, NotificationModel, RecentLoginModel, ExamPurchaseModel, ExamCheatingLogModel, StudentExamStatusModel };

@@ -1,5 +1,6 @@
 import { Op } from "sequelize";
 import { ExamResultModel, ExamSessionModel, StudentAnswerModel, ExamModel, QuestionModel, QuestionAnswerModel } from "../models/index.model.js";
+import { updateStatusOnSubmit } from "./student_exam_status.service.js";
 
 const includeExamForSession = {
   model: ExamModel,
@@ -108,6 +109,24 @@ const computeSessionScore = async (session, student_id) => {
     ],
   });
 
+  // Cập nhật status tracking khi submit
+  try {
+    const studentId = student_id || sessionWithExam.student_id;
+    await updateStatusOnSubmit(
+      studentId,
+      session.exam_id,
+      session.id,
+      {
+        total_score: totalScore,
+        percentage: roundedPercentage,
+        submitted_at: now
+      }
+    );
+  } catch (statusError) {
+    console.error('Error updating exam status on submit:', statusError);
+    // Không fail nếu update status lỗi
+  }
+
   return {
     result: resultWithDetails,
     summary: {
@@ -148,24 +167,33 @@ export const finalizeSessionResult = async (session, student_id) => {
 };
 
 export const autoSubmitExpiredSessions = async () => {
-  const now = new Date();
+  try {
+    const now = new Date();
 
-  const expiredSessions = await ExamSessionModel.findAll({
-    where: {
-      status: "in_progress",
-      end_time: {
-        [Op.lt]: now,
+    const expiredSessions = await ExamSessionModel.findAll({
+      where: {
+        status: "in_progress",
+        end_time: {
+          [Op.lt]: now,
+        },
       },
-    },
-    include: [includeExamForSession],
-  });
+      include: [includeExamForSession],
+      limit: 10  // Giới hạn số session xử lý mỗi lần để tránh timeout
+    });
 
-  for (const session of expiredSessions) {
-    try {
-      await computeSessionScore(session, session.student_id);
-    } catch (error) {
-      console.error(`Auto submit failed for session ${session.id}:`, error.message);
+    for (const session of expiredSessions) {
+      try {
+        const payload = await computeSessionScore(session, session.student_id);
+        // Status đã được cập nhật trong computeSessionScore
+      } catch (error) {
+        console.error(`Auto submit failed for session ${session.id}:`, error.message);
+        // Không throw error để tiếp tục xử lý các session khác
+      }
     }
+  } catch (error) {
+    // Catch toàn bộ lỗi để không crash server
+    console.error("Auto submit scheduler error:", error.message);
+    // Không throw để scheduler tiếp tục chạy
   }
 };
 

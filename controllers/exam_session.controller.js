@@ -1,6 +1,7 @@
 import { ExamSessionModel, ExamModel, UserModel, ClassesModel, ClassStudentModel, QuestionModel, QuestionAnswerModel } from "../models/index.model.js";
 import { genCode } from "../utils/generateClassCode.js";
 import { finalizeSessionResult } from "../services/exam_result.service.js";
+import { updateStatusOnStart } from "../services/student_exam_status.service.js";
 
 // Bắt đầu bài thi (Tạo exam session)
 export const startExam = async (req, res) => {
@@ -143,6 +144,14 @@ export const startExam = async (req, res) => {
 
         // Cập nhật count của exam (số lượt tham gia)
         await exam.increment('count');
+
+        // Cập nhật status tracking
+        try {
+            await updateStatusOnStart(student_id, exam_id, examSession.id);
+        } catch (statusError) {
+            console.error('Error updating exam status on start:', statusError);
+            // Không fail request nếu update status lỗi
+        }
 
         // Trả về exam session với thông tin exam
         const sessionWithExam = await ExamSessionModel.findOne({

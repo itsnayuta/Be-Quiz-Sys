@@ -19,7 +19,9 @@ import studentAnswerRoutes from "./routes/student_answer.routes.js";
 import examResultRoutes from "./routes/exam_result.routes.js";
 import { startAutoSubmitScheduler } from "./services/exam_result.service.js";
 import notificationRoutes from "./routes/notification.routes.js";
+import studentExamStatusRoutes from "./routes/student_exam_status.routes.js";
 import examPurchaseRoutes from "./routes/exam_purchase.routes.js";
+import examMonitorRoutes from "./routes/exam_monitor.routes.js";
 import adminRoutes from "./routes/admin/index.admin.routes.js";
 
 import postRoutes from "./routes/posts.routes.js";
@@ -33,7 +35,7 @@ app.use(cors({
 app.use(express.json())
 app.use(express.urlencoded({extended:true}))
 
-sequelize.sync({ alter: false }).then(()=>{
+sequelize.sync().then(()=>{
     console.log('Database synced')
 }).catch(error => {console.error(error.message)})
 
@@ -41,6 +43,7 @@ sequelize.sync({ alter: false }).then(()=>{
 authRoutes(app);
 authClasses(app)
 authUser(app)
+studentExamStatusRoutes(app)  // Phải đăng ký trước examRoutes để tránh conflict
 examRoutes(app)
 questionRoutes(app)
 questionAnswerRoutes(app)
@@ -52,10 +55,75 @@ postRoutes(app)
 examResultRoutes(app)
 notificationRoutes(app)
 examPurchaseRoutes(app)
+examMonitorRoutes(app)
 adminRoutes(app)
+
+// Error handling middleware - phải đặt sau tất cả routes
+app.use((err, req, res, next) => {
+    console.error('Error occurred:', err);
+    console.error('Stack trace:', err.stack);
+    
+    // Không leak thông tin lỗi chi tiết cho client trong production
+    const message = process.env.NODE_ENV === 'production' 
+        ? 'Internal server error' 
+        : err.message;
+    
+    res.status(err.status || 500).json({
+        message: message,
+        ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+    });
+});
+
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({
+        message: 'Route not found'
+    });
+});
+
+// Xử lý uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('UNCAUGHT EXCEPTION! Shutting down...');
+    console.error(error.name, error.message);
+    console.error(error.stack);
+    // Đóng server gracefully
+    process.exit(1);
+});
+
+// Xử lý unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED REJECTION! Shutting down...');
+    console.error('Reason:', reason);
+    console.error('Promise:', promise);
+    // Đóng server gracefully
+    process.exit(1);
+});
 
 startAutoSubmitScheduler();
 const PORT  =process.env.PORT || 5005;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Server đang chạy trên cổng ${PORT}`)
-})
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received. Shutting down gracefully...');
+    server.close(() => {
+        console.log('Process terminated');
+        sequelize.close().then(() => {
+            console.log('Database connection closed');
+            process.exit(0);
+        });
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log('SIGINT received. Shutting down gracefully...');
+    server.close(() => {
+        console.log('Process terminated');
+        sequelize.close().then(() => {
+            console.log('Database connection closed');
+            process.exit(0);
+        });
+    });
+});

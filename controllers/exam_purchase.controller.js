@@ -4,7 +4,8 @@ import sequelize from "../config/db.config.js";
 
 // Mua đề thi
 export const purchaseExam = async (req, res) => {
-    const transaction = await sequelize.transaction();
+    let transaction = null;
+    let newBalance = null;
     
     try {
         const userId = req.userId; // Lấy từ middleware authJWT
@@ -17,7 +18,7 @@ export const purchaseExam = async (req, res) => {
             });
         }
 
-        // Kiểm tra đề thi có tồn tại và là đề thi trả phí
+        // Validation không cần transaction (tiết kiệm connection)
         const exam = await ExamModel.findByPk(exam_id);
         if (!exam) {
             return res.status(404).json({
@@ -57,7 +58,10 @@ export const purchaseExam = async (req, res) => {
             });
         }
 
-        if (parseFloat(user.balance) < parseFloat(exam.fee)) {
+        const userBalance = parseFloat(user.balance);
+        const examFee = parseFloat(exam.fee);
+
+        if (userBalance < examFee) {
             return res.status(400).json({
                 success: false,
                 message: "Số dư không đủ để mua đề thi này",
@@ -66,9 +70,13 @@ export const purchaseExam = async (req, res) => {
             });
         }
 
+        // Bắt đầu transaction chỉ khi thực sự cần (khi update data)
+        transaction = await sequelize.transaction();
+
         // Trừ tiền và tạo bản ghi mua hàng
+        newBalance = userBalance - examFee;
         await user.update({
-            balance: parseFloat(user.balance) - parseFloat(exam.fee)
+            balance: newBalance
         }, { transaction });
 
         const purchase = await ExamPurchaseModel.create({
@@ -78,18 +86,25 @@ export const purchaseExam = async (req, res) => {
         }, { transaction });
 
         await transaction.commit();
+        transaction = null; // Đánh dấu transaction đã hoàn thành
 
         return res.status(200).json({
             success: true,
             message: "Mua đề thi thành công",
             data: {
                 purchase,
-                remainingBalance: parseFloat(user.balance) - parseFloat(exam.fee)
+                remainingBalance: newBalance
             }
         });
 
     } catch (error) {
-        await transaction.rollback();
+        if (transaction && !transaction.finished) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error("Error rolling back transaction:", rollbackError);
+            }
+        }
         console.error("Lỗi khi mua đề thi:", error);
         return res.status(500).json({
             success: false,
