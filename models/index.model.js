@@ -13,6 +13,7 @@ import PostCommentsModel from "./post_comments.model.js";
 import ExamResultModel from "./exam_result.model.js";
 import NotificationModel from "./notification.model.js";
 import RecentLoginModel from "./recent_login.model.js";
+import ExamPurchaseModel from "./exam_purchase.model.js";
 
 // User(Teacher) 1-N Classes
 UserModel.hasMany(ClassesModel, {
@@ -302,5 +303,30 @@ RecentLoginModel.belongsTo(UserModel,{
     foreignKey: 'user_id'
 })
 
+// User N-N Exams through ExamPurchase (Purchased exams)
+UserModel.belongsToMany(ExamModel, {
+  through: ExamPurchaseModel,
+  foreignKey: 'user_id',
+  otherKey: 'exam_id',
+  as: 'purchasedExams'
+});
 
-export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel, ExamResultModel, PostClassesModel, PostCommentsModel, NotificationModel, RecentLoginModel };
+ExamModel.belongsToMany(UserModel, {
+  through: ExamPurchaseModel,
+  foreignKey: 'exam_id',
+  otherKey: 'user_id',
+  as: 'purchasedBy'
+});
+
+ExamPurchaseModel.belongsTo(UserModel, {
+  foreignKey: 'user_id',
+  as: 'user'
+});
+
+ExamPurchaseModel.belongsTo(ExamModel, {
+  foreignKey: 'exam_id',
+  as: 'exam'
+});
+
+
+export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel, ExamResultModel, PostClassesModel, PostCommentsModel, NotificationModel, RecentLoginModel, ExamPurchaseModel };

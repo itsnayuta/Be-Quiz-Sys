@@ -19,6 +19,7 @@ import studentAnswerRoutes from "./routes/student_answer.routes.js";
 import examResultRoutes from "./routes/exam_result.routes.js";
 import { startAutoSubmitScheduler } from "./services/exam_result.service.js";
 import notificationRoutes from "./routes/notification.routes.js";
+import examPurchaseRoutes from "./routes/exam_purchase.routes.js";
 
 import postRoutes from "./routes/posts.routes.js";
 const app = express()
@@ -49,6 +50,7 @@ studentAnswerRoutes(app)
 postRoutes(app)
 examResultRoutes(app)
 notificationRoutes(app)
+examPurchaseRoutes(app)
 
 startAutoSubmitScheduler();
 const PORT  =process.env.PORT || 5005;

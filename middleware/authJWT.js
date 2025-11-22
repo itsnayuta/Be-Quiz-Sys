@@ -12,7 +12,7 @@ export const verifyToken = (req,res,next) => {
         return res.status(403).send({message: "Token authorization not valid"})
     }
 
-    token = token.slice(7,token.lenth);
+    token = token.slice(7,token.length);
 
     jwt.verify(token,authConfig.secret,(err,decoded) => {
         if (err){
