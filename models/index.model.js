@@ -318,6 +318,7 @@ ExamModel.belongsToMany(UserModel, {
   as: 'purchasedBy'
 });
 
+// Direct associations for easier querying
 ExamPurchaseModel.belongsTo(UserModel, {
   foreignKey: 'user_id',
   as: 'user'
@@ -326,6 +327,16 @@ ExamPurchaseModel.belongsTo(UserModel, {
 ExamPurchaseModel.belongsTo(ExamModel, {
   foreignKey: 'exam_id',
   as: 'exam'
+});
+
+ExamModel.hasMany(ExamPurchaseModel, {
+  foreignKey: 'exam_id',
+  as: 'purchases'
+});
+
+UserModel.hasMany(ExamPurchaseModel, {
+  foreignKey: 'user_id',
+  as: 'purchases'
 });
 
 

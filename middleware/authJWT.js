@@ -46,7 +46,23 @@ export const verifyStudent = (req,res,next) => {
     }
 
     next();
-}   
+}
+
+export const verifyAdmin = (req, res, next) => {
+    if (req.role !== 'admin') {
+        return res.status(403).send({message: 'This action requires admin privileges'});
+    }
+
+    next();
+}
+
+export const verifyTeacherOrAdmin = (req, res, next) => {
+    if (req.role !== 'teacher' && req.role !== 'admin') {
+        return res.status(403).send({message: 'This action requires teacher or admin privileges'});
+    }
+
+    next();
+}
 
 
 

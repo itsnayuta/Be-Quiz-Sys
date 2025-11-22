@@ -20,6 +20,7 @@ import examResultRoutes from "./routes/exam_result.routes.js";
 import { startAutoSubmitScheduler } from "./services/exam_result.service.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import examPurchaseRoutes from "./routes/exam_purchase.routes.js";
+import adminRoutes from "./routes/admin/index.admin.routes.js";
 
 import postRoutes from "./routes/posts.routes.js";
 const app = express()
@@ -32,7 +33,7 @@ app.use(cors({
 app.use(express.json())
 app.use(express.urlencoded({extended:true}))
 
-sequelize.sync({ alter: true }).then(()=>{
+sequelize.sync({ alter: false }).then(()=>{
     console.log('Database synced')
 }).catch(error => {console.error(error.message)})
 
@@ -51,6 +52,7 @@ postRoutes(app)
 examResultRoutes(app)
 notificationRoutes(app)
 examPurchaseRoutes(app)
+adminRoutes(app)
 
 startAutoSubmitScheduler();
 const PORT  =process.env.PORT || 5005;
