@@ -184,28 +184,67 @@ export const GetStudentFromClass = async (req,res) => {
     }
 }
 
-//Ban student
+//Ban/Unban student
 
 export const BanStudent = async(req,res) => {
     try{
 
-        const {classId,student_id} = req.body;
+        const {classId, class_id, student_id, is_banned} = req.body;
 
+        // Support both classId and class_id for backward compatibility
+        const classIdValue = classId || class_id;
+
+        // Validate required fields
+        if (!classIdValue || !student_id) {
+            return res.status(400).send({ 
+                status: false, 
+                message: 'Missing required fields: classId (or class_id) and student_id' 
+            });
+        }
+
+        // Validate is_banned is boolean
+        if (typeof is_banned !== 'boolean') {
+            return res.status(400).send({ 
+                status: false, 
+                message: 'is_banned must be a boolean value' 
+            });
+        }
+
+        // Find the class-student relationship
         const classStudent = await ClassStudentModel.findOne({
             where: {
-                class_id: classId,
+                class_id: classIdValue,
                 student_id: student_id
             }
         })
 
-        classStudent.is_ban = true
+        if (!classStudent) {
+            return res.status(404).send({ 
+                status: false, 
+                message: 'Student not found in this class' 
+            });
+        }
 
-        await classStudent.save()
+        // Update ban status
+        classStudent.is_ban = is_banned;
+        await classStudent.save();
 
-        return res.status(200).send("Ban Successfully")
+        return res.status(200).send({
+            status: true,
+            message: is_banned ? 'Student banned successfully' : 'Student unbanned successfully',
+            data: {
+                student_id: student_id,
+                class_id: classIdValue,
+                is_ban: is_banned
+            }
+        });
         
     }catch(error){
-        return res.status(500).send({message: error.message})
+        console.error('Error updating student ban status:', error);
+        return res.status(500).send({
+            status: false,
+            message: error.message || 'Internal server error'
+        });
     }
 }
 
