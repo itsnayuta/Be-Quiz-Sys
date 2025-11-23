@@ -35,9 +35,10 @@ app.use(cors({
 app.use(express.json())
 app.use(express.urlencoded({extended:true}))
 
-sequelize.sync().then(()=>{
-    console.log('Database synced')
-}).catch(error => {console.error(error.message)})
+sequelize.sync({ alter: true })
+  .then(() => console.log("Database synced (altered)"))
+  .catch(err => console.error(err));
+
 
 
 authRoutes(app);

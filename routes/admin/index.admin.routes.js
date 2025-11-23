@@ -1,4 +1,4 @@
-import { verifyToken, verifyAdmin } from "../../middleware/authJWT.js";
+import { verifyToken, verifyAdmin, verifySuperAdmin } from "../../middleware/authJWT.js";
 
 // Dashboard
 import { getDashboard } from "../../controllers/admin/dashboard.admin.controller.js";
@@ -79,40 +79,41 @@ export default function(app) {
     );
 
     // ==================== USER MANAGEMENT ====================
+    // Only superadmin can manage users (CRUD operations and adjust balance)
     
     app.get(
         "/api/admin/users",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],
         getAllUsers
     );
 
     app.get(
         "/api/admin/users/:id",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],
         getUserById
     );
 
     app.post(
         "/api/admin/users",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],
         createUser
     );
 
     app.put(
         "/api/admin/users/:id",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],
         updateUser
     );
 
     app.delete(
         "/api/admin/users/:id",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],
         deleteUser
     );
 
     app.post(
         "/api/admin/users/:id/adjust-balance",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],
         adjustUserBalance
     );
 
@@ -138,7 +139,7 @@ export default function(app) {
 
     app.delete(
         "/api/admin/exams/:id",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],  // Only superadmin can delete exams
         deleteExam
     );
 
@@ -164,7 +165,7 @@ export default function(app) {
 
     app.delete(
         "/api/admin/classes/:id",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],  // Only superadmin can delete classes
         deleteClass
     );
 
@@ -190,7 +191,7 @@ export default function(app) {
 
     app.post(
         "/api/admin/purchases/:id/refund",
-        [verifyToken, verifyAdmin],
+        [verifyToken, verifySuperAdmin],  // Only superadmin can refund purchases
         refundPurchase
     );
 
