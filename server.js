@@ -23,6 +23,7 @@ import studentExamStatusRoutes from "./routes/student_exam_status.routes.js";
 import examPurchaseRoutes from "./routes/exam_purchase.routes.js";
 import examMonitorRoutes from "./routes/exam_monitor.routes.js";
 import adminRoutes from "./routes/admin/index.admin.routes.js";
+import teacherDashboardRoutes from "./routes/teacher_dashboard.routes.js";
 
 import postRoutes from "./routes/posts.routes.js";
 const app = express()
@@ -58,6 +59,7 @@ notificationRoutes(app)
 examPurchaseRoutes(app)
 examMonitorRoutes(app)
 adminRoutes(app)
+teacherDashboardRoutes(app)
 
 // Error handling middleware - phải đặt sau tất cả routes
 app.use((err, req, res, next) => {
