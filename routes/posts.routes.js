@@ -22,8 +22,8 @@ const postRoutes = (app) =>{
     //Update Post
     app.post('/api/posts/update/:postId',verifyToken,verifyTeacher,UpdatePost)
 
-    // Delete Comment
-    app.delete('/api/posts/comment/:postId',verifyToken,verifyTeacher,UpdatePost)
+    // Delete Comment (only teacher can delete comments)
+    app.delete('/api/posts/comment/:commentId',verifyToken,verifyTeacher,DeleteComment)
 }   
 
 
