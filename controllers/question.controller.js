@@ -50,6 +50,16 @@ export const createQuestion = async (req, res) => {
                     message: 'At least one answer must be marked as correct' 
                 });
             }
+
+            // Validate single_choice: must have exactly one correct answer
+            if (type === 'single_choice') {
+                const correctCount = answers.filter(answer => answer.is_correct === true).length;
+                if (correctCount !== 1) {
+                    return res.status(400).send({ 
+                        message: 'Single choice questions must have exactly one correct answer' 
+                    });
+                }
+            }
         }
 
         // Get max order for this exam to set new question order

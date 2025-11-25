@@ -76,11 +76,11 @@ export const answerQuestion = async (req, res) => {
         }
 
         // Validate answer dựa trên type của question
-        if (question.type === 'multiple_choice' || question.type === 'true_false') {
-            // Multiple choice/True-False cần selected_answer_id
+        if (question.type === 'single_choice' || question.type === 'multiple_choice' || question.type === 'true_false') {
+            // Single choice/Multiple choice/True-False cần selected_answer_id
             if (!selected_answer_id) {
                 return res.status(400).send({ 
-                    message: 'selected_answer_id is required for multiple choice/true-false questions' 
+                    message: 'selected_answer_id is required for single choice/multiple choice/true-false questions' 
                 });
             }
 
@@ -112,8 +112,8 @@ export const answerQuestion = async (req, res) => {
         let score = null;
         let is_correct = null;
 
-        if (question.type === 'multiple_choice' || question.type === 'true_false') {
-            // Tự động tính điểm cho multiple choice/true-false
+        if (question.type === 'single_choice' || question.type === 'multiple_choice' || question.type === 'true_false') {
+            // Tự động tính điểm cho single choice/multiple choice/true-false
             const selectedAnswer = await QuestionAnswerModel.findOne({
                 where: { id: selected_answer_id }
             });
