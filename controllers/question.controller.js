@@ -1,4 +1,4 @@
-import { QuestionModel, ExamModel, QuestionAnswerModel } from "../models/index.model.js";
+import { QuestionModel, ExamModel, QuestionAnswerModel, StudentAnswerModel } from "../models/index.model.js";
 
 // Create question
 export const createQuestion = async (req, res) => {
@@ -312,6 +312,45 @@ export const updateQuestion = async (req, res) => {
         if (req.body.order !== undefined) updateData.order = req.body.order;
 
         await question.update(updateData);
+
+        if (req.body.answers && Array.isArray(req.body.answers)) {
+            const answers = req.body.answers;
+
+            if (answers.length === 0) {
+                return res.status(400).send({
+                    message: 'At least one answer is required'
+                });
+            }
+
+            const hasCorrectAnswer = answers.some(answer => answer.is_correct === true);
+            if (!hasCorrectAnswer) {
+                return res.status(400).send({
+                    message: 'At least one answer must be marked as correct'
+                });
+            }
+
+            if (answers.some(answer => !answer.text || !answer.text.trim())) {
+                return res.status(400).send({
+                    message: 'Answer text cannot be empty'
+                });
+            }
+
+            await StudentAnswerModel.destroy({
+                where: { exam_question_id: id }
+            });
+
+            await QuestionAnswerModel.destroy({
+                where: { question_id: id }
+            });
+
+            const answerPayloads = answers.map(answer => ({
+                question_id: id,
+                text: answer.text,
+                is_correct: answer.is_correct || false
+            }));
+
+            await QuestionAnswerModel.bulkCreate(answerPayloads);
+        }
 
         // Return updated question with answers
         const updatedQuestion = await QuestionModel.findOne({

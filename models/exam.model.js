@@ -67,6 +67,12 @@ const ExamModel = sequelize.define('Exams', {
         type: DataTypes.INTEGER,
         allowNull: false,
         defaultValue: 0
+    },
+    question_creation_method: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null,
+        comment: 'text | editor'
     }
 }, {
     timestamps: true,

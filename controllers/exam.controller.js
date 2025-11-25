@@ -1,6 +1,13 @@
-import { ExamModel, ClassesModel, ClassStudentModel } from "../models/index.model.js";
+import { ExamModel, ClassesModel, ClassStudentModel, QuestionModel, QuestionAnswerModel, StudentAnswerModel } from "../models/index.model.js";
 import { Op } from "sequelize";
 import { notifyExamAssignedToClass } from "../services/notification.service.js";
+
+const ALLOWED_QUESTION_METHODS = ['text', 'editor'];
+
+function normalizeQuestionMethod(value) {
+    if (!value) return null;
+    return ALLOWED_QUESTION_METHODS.includes(value) ? value : null;
+}
 
 export const createExam = async (req, res) => {
     try {
@@ -14,7 +21,8 @@ export const createExam = async (req, res) => {
             end_time,
             is_paid,
             fee,
-            is_public
+            is_public,
+            question_creation_method
         } = req.body;
 
         const created_by = req.userId; // Get from middleware
@@ -59,6 +67,13 @@ export const createExam = async (req, res) => {
             });
         }
 
+        const normalizedQuestionMethod = normalizeQuestionMethod(question_creation_method);
+        if (question_creation_method && !normalizedQuestionMethod) {
+            return res.status(400).send({
+                message: 'Invalid question_creation_method. Allowed values: text, editor'
+            });
+        }
+
         // Create exam
         const exam = await ExamModel.create({
             class_id: class_id || null, // Cho phép null (có thể gắn vào class sau)
@@ -72,7 +87,8 @@ export const createExam = async (req, res) => {
             fee: is_paid ? fee : 0,
             created_by,
             is_public: is_public || false,
-            count: 0
+            count: 0,
+            question_creation_method: normalizedQuestionMethod
         });
 
         // Gửi thông báo cho students nếu exam được gắn vào class
@@ -181,7 +197,8 @@ export const updateExam = async (req, res) => {
             end_time,
             is_paid,
             fee,
-            is_public
+            is_public,
+            question_creation_method
         } = req.body;
 
         // Find exam
@@ -243,6 +260,39 @@ export const updateExam = async (req, res) => {
         const oldClassId = exam.class_id;
         const newClassId = class_id !== undefined ? class_id : oldClassId;
 
+        // Validate question creation method updates
+        let normalizedQuestionMethodValue = undefined;
+        if (question_creation_method !== undefined) {
+            const normalizedMethod = question_creation_method
+                ? normalizeQuestionMethod(question_creation_method)
+                : null;
+
+            if (question_creation_method && !normalizedMethod) {
+                return res.status(400).send({
+                    message: 'Invalid question_creation_method. Allowed values: text, editor'
+                });
+            }
+
+            const existingMethod = exam.question_creation_method;
+
+            if (existingMethod && normalizedMethod && existingMethod !== normalizedMethod) {
+                return res.status(400).send({
+                    message: `Question creation method has already been locked to "${existingMethod}".`
+                });
+            }
+
+            if (existingMethod && normalizedMethod === null) {
+                return res.status(400).send({
+                    message: 'Question creation method cannot be unset once selected.'
+                });
+            }
+
+            if (!existingMethod || normalizedMethod === existingMethod) {
+                // Only set when previously empty or same value (idempotent)
+                normalizedQuestionMethodValue = normalizedMethod ?? existingMethod ?? null;
+            }
+        }
+
         // Update exam
         const updateData = {};
         if (class_id !== undefined) updateData.class_id = class_id; // Cho phép set null để bỏ gắn exam
@@ -255,6 +305,9 @@ export const updateExam = async (req, res) => {
         if (is_paid !== undefined) updateData.is_paid = is_paid;
         if (fee !== undefined) updateData.fee = finalIsPaid ? fee : 0;
         if (is_public !== undefined) updateData.is_public = is_public;
+        if (question_creation_method !== undefined && normalizedQuestionMethodValue !== undefined) {
+            updateData.question_creation_method = normalizedQuestionMethodValue;
+        }
 
         await exam.update(updateData);
 
@@ -282,6 +335,110 @@ export const updateExam = async (req, res) => {
 
         return res.status(200).send(updatedExam);
 
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
+};
+
+export const switchQuestionCreationMethod = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { target_method } = req.body;
+        const userId = req.userId;
+
+        if (!target_method) {
+            return res.status(400).send({
+                message: 'target_method is required (text | editor)'
+            });
+        }
+
+        const normalizedTarget = normalizeQuestionMethod(target_method);
+        if (!normalizedTarget) {
+            return res.status(400).send({
+                message: 'Invalid target_method. Allowed values: text, editor'
+            });
+        }
+
+        const exam = await ExamModel.findOne({
+            where: { id, created_by: userId }
+        });
+
+        if (!exam) {
+            return res.status(404).send({
+                message: 'Exam not found or you do not have permission to update it'
+            });
+        }
+
+        if (!exam.question_creation_method) {
+            return res.status(400).send({
+                message: 'Question creation method has not been selected yet.'
+            });
+        }
+
+        if (exam.question_creation_method === normalizedTarget) {
+            return res.status(400).send({
+                message: 'Exam is already using the requested question creation method.'
+            });
+        }
+
+        const transaction = await ExamModel.sequelize.transaction();
+
+        try {
+            const questions = await QuestionModel.findAll({
+                where: { exam_id: id, teacher_id: userId },
+                attributes: ['id'],
+                transaction
+            });
+
+            const questionIds = questions.map(q => q.id);
+
+            if (questionIds.length > 0) {
+                await StudentAnswerModel.destroy({
+                    where: { exam_question_id: questionIds },
+                    transaction
+                });
+
+                await QuestionAnswerModel.destroy({
+                    where: { question_id: questionIds },
+                    transaction
+                });
+
+                await QuestionModel.destroy({
+                    where: { id: questionIds },
+                    transaction
+                });
+            }
+
+            await exam.update(
+                {
+                    question_creation_method: normalizedTarget,
+                    count: 0
+                },
+                { transaction }
+            );
+
+            await transaction.commit();
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+
+        const updatedExam = await ExamModel.findOne({
+            where: { id },
+            include: [
+                {
+                    model: ClassesModel,
+                    as: 'class',
+                    attributes: ['id', 'className', 'classCode'],
+                    required: false
+                }
+            ]
+        });
+
+        return res.status(200).send({
+            message: 'Question creation method switched successfully. All previous questions have been removed.',
+            exam: updatedExam
+        });
     } catch (error) {
         return res.status(500).send({ message: error.message });
     }

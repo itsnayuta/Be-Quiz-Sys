@@ -5,7 +5,8 @@ import {
     updateExam, 
     deleteExam,
     getAvailableExamsForStudent,
-    getExamDetailForStudent
+    getExamDetailForStudent,
+    switchQuestionCreationMethod
 } from "../controllers/exam.controller.js";
 import { verifyToken, verifyTeacher, verifyStudent } from "../middleware/authJWT.js";
 
@@ -21,6 +22,9 @@ const examRoutes = (app) => {
     
     // Update exam (only teacher who created it)
     app.put('/api/exams/:id', verifyToken, verifyTeacher, updateExam);
+
+    // Switch question creation method (reset all questions)
+    app.post('/api/exams/:id/switch-question-method', verifyToken, verifyTeacher, switchQuestionCreationMethod);
     
     // Delete exam (only teacher who created it)
     app.delete('/api/exams/:id', verifyToken, verifyTeacher, deleteExam);
