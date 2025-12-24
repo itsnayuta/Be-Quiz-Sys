@@ -99,7 +99,7 @@ export const getResult = async (req, res) => {
 
         if (!result) {
             return res.status(404).send({ 
-                message: 'Result not found. Please submit the exam first.' 
+                message: 'Không tìm thấy kết quả. Vui lòng nộp bài thi trước.' 
             });
         }
 
@@ -262,7 +262,7 @@ export const getStudentComparison = async (req, res) => {
 
         if (!studentResult) {
             return res.status(404).send({
-                message: 'Result not found. Submit the exam first.'
+                message: 'Không tìm thấy kết quả. Vui lòng nộp bài thi trước.'
             });
         }
 
@@ -296,7 +296,7 @@ export const getStudentComparison = async (req, res) => {
 
         let classComparison = {
             available: false,
-            reason: 'Exam is not attached to any class.'
+            reason: 'Đề thi này không thuộc lớp nào.'
         };
 
         const examClassId = studentResult.exam?.class_id || null;
@@ -317,12 +317,12 @@ export const getStudentComparison = async (req, res) => {
             if (!belongsToClass) {
                 classComparison = {
                     available: false,
-                    reason: 'You are not part of this class.'
+                    reason: 'Bạn không thuộc lớp này.'
                 };
             } else if (classStudentIds.length === 0) {
                 classComparison = {
                     available: false,
-                    reason: 'No students found in this class.'
+                    reason: 'Không tìm thấy học sinh nào trong lớp này.'
                 };
             } else {
                 const classFilter = {
@@ -335,7 +335,7 @@ export const getStudentComparison = async (req, res) => {
                 if (classTotal === 0) {
                     classComparison = {
                         available: false,
-                        reason: 'No classmate has submitted this exam yet.'
+                        reason: 'Chưa có bạn học nào nộp bài thi này.'
                     };
                 } else {
                     const classHigher = await ExamResultModel.count({

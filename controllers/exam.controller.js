@@ -1085,6 +1085,12 @@ export const getSimilarExams = async (req, res) => {
                     as: 'class',
                     attributes: ['id', 'className', 'classCode'],
                     required: false
+                },
+                {
+                    model: UserModel,
+                    as: 'creator',
+                    attributes: ['id', 'fullName', 'email'],
+                    required: false
                 }
             ],
             order: [
