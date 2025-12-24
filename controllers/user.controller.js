@@ -47,7 +47,7 @@ export const UpdateProfileInfo = async (req,res) => {
 
         const userId = req.userId;
 
-        const {fullName, email} = req.body;
+        const {fullName, email, avatar_url} = req.body;
     
         if (!fullName || !email){
             res.status(400).send("Missing information");
@@ -63,6 +63,11 @@ export const UpdateProfileInfo = async (req,res) => {
 
         userInfor.fullName = fullName;
         userInfor.email = email;
+        
+        // Cập nhật avatar_url nếu có
+        if (avatar_url !== undefined) {
+            userInfor.avatar_url = avatar_url;
+        }
 
         await userInfor.save()
         

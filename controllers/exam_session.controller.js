@@ -38,13 +38,13 @@ export const startExam = async (req, res) => {
 
             if (now < examStartTime) {
                 return res.status(400).send({ 
-                    message: 'Exam has not started yet' 
+                    message: 'Bài thi chưa bắt đầu' 
                 });
             }
 
             if (now > examEndTime) {
                 return res.status(400).send({ 
-                    message: 'Exam has ended' 
+                    message: 'Bài thi đã kết thúc' 
                 });
             }
         }
@@ -300,7 +300,7 @@ export const getCurrentSession = async (req, res) => {
         if (now > sessionEndTime) {
             const { result } = await finalizeSessionResult(session, student_id);
             return res.status(400).send({ 
-                message: 'Exam session has expired and was auto-submitted',
+                message: 'Phiên làm bài đã hết hạn và đã được tự động nộp',
                 result
             });
         }
@@ -389,7 +389,7 @@ export const getSessionQuestionsForStudent = async (req, res) => {
         if (now > new Date(session.end_time)) {
             const { result } = await finalizeSessionResult(session, student_id);
             return res.status(400).send({
-                message: 'Exam session has expired and was auto-submitted',
+                message: 'Phiên làm bài đã hết hạn và đã được tự động nộp',
                 result
             });
         }

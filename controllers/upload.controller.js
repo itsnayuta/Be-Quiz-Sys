@@ -12,8 +12,8 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Cấu hình multer
-const storage = multer.diskStorage({
+// Cấu hình multer cho exam images
+const examStorage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, uploadsDir);
     },
@@ -22,6 +22,19 @@ const storage = multer.diskStorage({
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const ext = path.extname(file.originalname);
         cb(null, `exam-${uniqueSuffix}${ext}`);
+    }
+});
+
+// Cấu hình multer cho user avatars
+const avatarStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+        // Tạo tên file unique: timestamp + random + extension
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        cb(null, `avatar-${uniqueSuffix}${ext}`);
     }
 });
 
@@ -39,9 +52,17 @@ const fileFilter = (req, file, cb) => {
 };
 
 export const upload = multer({
-    storage: storage,
+    storage: examStorage,
     limits: {
         fileSize: 5 * 1024 * 1024 // 5MB
+    },
+    fileFilter: fileFilter
+});
+
+export const uploadAvatar = multer({
+    storage: avatarStorage,
+    limits: {
+        fileSize: 2 * 1024 * 1024 // 2MB cho avatar
     },
     fileFilter: fileFilter
 });
@@ -67,6 +88,31 @@ export const uploadExamImage = async (req, res) => {
     } catch (error) {
         return res.status(500).send({ 
             message: error.message || 'Lỗi khi upload ảnh' 
+        });
+    }
+};
+
+// Controller để upload avatar
+export const uploadUserAvatar = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).send({ 
+                message: 'Không có file được upload' 
+            });
+        }
+
+        // Trả về URL của ảnh đã upload
+        const imageUrl = `/uploads/${req.file.filename}`;
+        
+        return res.status(200).send({
+            message: 'Upload avatar thành công',
+            avatar_url: imageUrl,
+            filename: req.file.filename
+        });
+
+    } catch (error) {
+        return res.status(500).send({ 
+            message: error.message || 'Lỗi khi upload avatar' 
         });
     }
 };
