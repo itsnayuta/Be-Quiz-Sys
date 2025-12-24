@@ -1,7 +1,7 @@
 import express from "express";
 
 import 'dotenv/config.js';
-import cors from 'cors'; 
+import cors from 'cors';
 
 import sequelize from "./config/db.config.js";
 import "./models/index.model.js";
@@ -24,6 +24,8 @@ import examPurchaseRoutes from "./routes/exam_purchase.routes.js";
 import examMonitorRoutes from "./routes/exam_monitor.routes.js";
 import adminRoutes from "./routes/admin/index.admin.routes.js";
 import teacherDashboardRoutes from "./routes/teacher_dashboard.routes.js";
+import walletRoutes from "./routes/wallet.routes.js";
+import { startDepositExpiryScheduler } from "./services/wallet.service.js";
 
 import postRoutes from "./routes/posts.routes.js";
 const app = express()
@@ -34,11 +36,11 @@ app.use(cors({
     credentials: true,
 }));
 app.use(express.json())
-app.use(express.urlencoded({extended:true}))
+app.use(express.urlencoded({ extended: true }))
 
 sequelize.sync({ alter: true })
-  .then(() => console.log("Database synced (altered)"))
-  .catch(err => console.error(err));
+    .then(() => console.log("Database synced (altered)"))
+    .catch(err => console.error(err));
 
 
 
@@ -60,17 +62,18 @@ examPurchaseRoutes(app)
 examMonitorRoutes(app)
 adminRoutes(app)
 teacherDashboardRoutes(app)
+walletRoutes(app)
 
 // Error handling middleware - phải đặt sau tất cả routes
 app.use((err, req, res, next) => {
     console.error('Error occurred:', err);
     console.error('Stack trace:', err.stack);
-    
+
     // Không leak thông tin lỗi chi tiết cho client trong production
-    const message = process.env.NODE_ENV === 'production' 
-        ? 'Internal server error' 
+    const message = process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
         : err.message;
-    
+
     res.status(err.status || 500).json({
         message: message,
         ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
@@ -103,7 +106,8 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 startAutoSubmitScheduler();
-const PORT  =process.env.PORT || 5005;
+startDepositExpiryScheduler();
+const PORT = process.env.PORT || 5005;
 const server = app.listen(PORT, () => {
     console.log(`Server đang chạy trên cổng ${PORT}`)
 });
