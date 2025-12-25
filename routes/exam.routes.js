@@ -4,21 +4,23 @@ import {
     getExams, 
     updateExam, 
     deleteExam,
-    getAvailableExamsForStudent,
-    getExamDetailForStudent,
-    switchQuestionCreationMethod
+    switchQuestionCreationMethod,
+    getSimilarExams
 } from "../controllers/exam.controller.js";
-import { verifyToken, verifyTeacher, verifyStudent } from "../middleware/authJWT.js";
+import { verifyToken, verifyTeacher } from "../middleware/authJWT.js";
 
 const examRoutes = (app) => {
     // Create exam (only teacher)
     app.post('/api/exams', verifyToken, verifyTeacher, createExam);
     
-    // Get all exams (teacher can see their own exams)
-    app.get('/api/exams', verifyToken, verifyTeacher, getExams);
+    // Get all exams (teacher and student - role-based logic inside)
+    app.get('/api/exams', verifyToken, getExams);
     
-    // Get exam by ID
-    app.get('/api/exams/:id', verifyToken, verifyTeacher, getExamById);
+    // Get exam by ID (teacher and student - role-based logic inside)
+    app.get('/api/exams/:id', verifyToken, getExamById);
+    
+    // Get similar exams (cùng class, cùng chủ đề, hoặc tên liên quan)
+    app.get('/api/exams/:id/similar', verifyToken, getSimilarExams);
     
     // Update exam (only teacher who created it)
     app.put('/api/exams/:id', verifyToken, verifyTeacher, updateExam);
@@ -28,12 +30,6 @@ const examRoutes = (app) => {
     
     // Delete exam (only teacher who created it)
     app.delete('/api/exams/:id', verifyToken, verifyTeacher, deleteExam);
-    
-    // Student: Get available exams (public + in student's classes)
-    app.get('/api/student/exams', verifyToken, verifyStudent, getAvailableExamsForStudent);
-    
-    // Student: Get exam detail (không lộ đáp án)
-    app.get('/api/student/exams/:id', verifyToken, verifyStudent, getExamDetailForStudent);
 }
 
 export default examRoutes;

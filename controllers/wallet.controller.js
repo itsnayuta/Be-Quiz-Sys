@@ -1,0 +1,602 @@
+import axios from "axios";
+import sequelize from "../config/db.config.js";
+import { Op } from "sequelize";
+import { DepositHistoryModel, TransactionHistoryModel, UserModel, WithdrawHistoryModel } from "../models/index.model.js";
+
+const generateDepositCode = () => {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let code = "";
+    for (let i = 0; i < 12; i++) {
+        code += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    return code;
+};
+
+// Tạo mã deposit_code unique (check DB, tránh trùng)
+const generateUniqueDepositCode = async () => {
+    let code;
+    // Lặp tối đa vài lần cho an toàn
+    for (let i = 0; i < 5; i++) {
+        code = generateDepositCode();
+        const existing = await DepositHistoryModel.findOne({
+            where: { deposit_code: code },
+            attributes: ["id"]
+        });
+        if (!existing) {
+            return code;
+        }
+    }
+    return `${generateDepositCode()}-${Math.floor(Math.random() * 1000)}`;
+};
+
+// Tạo yêu cầu nạp tiền: lưu pending và trả về QR base64
+export const createDepositRequest = async (req, res) => {
+    const { bankName, bankAccountName, bankAccountNumber, amount } = req.body;
+    const userId = req.userId;
+
+    if (!bankName || !bankAccountName || !bankAccountNumber || !amount) {
+        return res.status(400).json({
+            success: false,
+            message: "Thiếu bankName, bankAccountName, bankAccountNumber hoặc amount"
+        });
+    }
+
+    const depositAmount = parseFloat(amount);
+    if (Number.isNaN(depositAmount) || depositAmount <= 0) {
+        return res.status(400).json({
+            success: false,
+            message: "Giá trị amount không hợp lệ"
+        });
+    }
+
+    try {
+        const transactionCode = await generateUniqueDepositCode();
+
+        const deposit = await DepositHistoryModel.create({
+            user_id: userId,
+            bankName,
+            bankAccountName,
+            bankAccountNumber,
+            deposit_status: 'pending',
+            deposit_code: transactionCode,
+            deposit_type: 'bank',
+            deposit_amount: depositAmount
+        });
+
+        // Gọi sepay để lấy ảnh QR (base64)
+        const amountParam = depositAmount.toFixed(3);
+        const qrUrl = `https://qr.sepay.vn/img?bank=${encodeURIComponent(bankName)}&acc=${bankAccountNumber}&template=compact&amount=${amountParam}&des=${transactionCode}`;
+
+        const qrResponse = await axios.get(qrUrl, { responseType: "arraybuffer" });
+        const qrBase64 = Buffer.from(qrResponse.data, 'binary').toString('base64');
+
+        return res.status(200).json({
+            success: true,
+            message: "Tạo yêu cầu nạp tiền thành công",
+            data: {
+                bankAccountName: deposit.bankAccountName,
+                bankAccountNumber: deposit.bankAccountNumber,
+                bankName: deposit.bankName,
+                deposit_id: deposit.id,
+                deposit_code: transactionCode,
+                deposit_status: deposit.deposit_status,
+                amount: depositAmount,
+                qr_base64: qrBase64
+            }
+        });
+
+    } catch (error) {
+        console.error("Lỗi khi tạo yêu cầu nạp tiền:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi server khi tạo yêu cầu nạp tiền",
+            error: error.message
+        });
+    }
+};
+
+const extractDepositCode = (payload) => {
+    console.log(payload.content)
+    if (payload.content) {
+        const match = String(payload.content).match(/([A-Za-z]{12})/);
+        if (match) return match[1];
+    }
+    return null;
+};
+
+// webhook sepay
+export const sepayWebhook = async (req, res) => {
+    const payload = req.body || {};
+
+    // pay in
+    if (payload.transferType && payload.transferType !== 'in') {
+        return res.status(200).json({ success: true, message: "Bỏ qua giao dịch tiền ra" });
+    }
+
+    const depositCode = extractDepositCode(payload);
+    if (!depositCode) {
+        return res.status(400).json({ success: false, message: "Không tìm thấy mã nạp tiền trong payload" });
+    }
+
+    let transaction;
+    try {
+        transaction = await sequelize.transaction();
+
+        const deposit = await DepositHistoryModel.findOne({
+            where: { deposit_code: depositCode },
+            transaction,
+            lock: transaction.LOCK.UPDATE
+        });
+
+        if (!deposit) {
+            await transaction.rollback();
+            return res.status(404).json({ success: false, message: "Không tìm thấy yêu cầu nạp" });
+        }
+
+        if (deposit.deposit_status === 'success') {
+            await transaction.rollback();
+            return res.status(200).json({ success: true, message: "Đã xử lý trước đó" });
+        }
+
+        const transferAmount = parseFloat(payload.transferAmount);
+        const expectedAmount = parseFloat(deposit.deposit_amount);
+
+        if (Number.isNaN(transferAmount) || transferAmount !== expectedAmount) {
+            await transaction.rollback();
+            return res.status(400).json({
+                success: false,
+                message: "Số tiền giao dịch không khớp với yêu cầu nạp"
+            });
+        }
+
+        const user = await UserModel.findByPk(deposit.user_id, { transaction, lock: transaction.LOCK.UPDATE });
+        if (!user) {
+            await transaction.rollback();
+            return res.status(404).json({ success: false, message: "Không tìm thấy người dùng" });
+        }
+
+        const beforeBalance = parseFloat(user.balance);
+        const afterBalance = beforeBalance + transferAmount;
+
+        await user.update({ balance: afterBalance }, { transaction });
+        await deposit.update({
+            deposit_status: 'success',
+            bankName: payload.gateway || deposit.bankName,
+            bankAccountNumber: payload.accountNumber || deposit.bankAccountNumber,
+            deposit_amount: transferAmount
+        }, { transaction });
+
+        await TransactionHistoryModel.create({
+            user_id: deposit.user_id,
+            transactionType: 'deposit',
+            referenceId: deposit.id,
+            amount: transferAmount,
+            beforeBalance,
+            afterBalance,
+            transactionStatus: 'success',
+            transferType: payload.transferType || 'bank',
+            description: payload.content || `Nạp tiền qua ${payload.gateway || deposit.bankName} - Mã: ${depositCode}`
+        }, { transaction });
+
+        await transaction.commit();
+
+        return res.status(200).json({ success: true, message: "Nạp tiền thành công", deposit_code: depositCode });
+
+    } catch (error) {
+        if (transaction) {
+            try { await transaction.rollback(); } catch (rbErr) { console.error("Lỗi rollback:", rbErr); }
+        }
+        console.error("Webhook sepay lỗi:", error);
+        return res.status(500).json({ success: false, message: "Lỗi server", error: error.message });
+    }
+};
+
+// Lấy danh sách deposit_history
+export const getDepositHistory = async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 10,
+            sortBy = 'created_at',
+            order = 'DESC',
+            status,
+            user_id,
+            fromDate,
+            toDate,
+            minAmount,
+            maxAmount,
+            bankName,
+            deposit_type
+        } = req.query;
+
+        const offset = (page - 1) * limit;
+        const userId = req.userId;
+        const isAdmin = req.role === 'admin' || req.role === 'superadmin';
+
+        const where = {};
+
+        // Nếu không phải admin, chỉ lấy dữ liệu của user hiện tại
+        if (!isAdmin) {
+            where.user_id = userId;
+        } else {
+            // Admin có thể filter theo user_id hoặc lấy tất cả
+            if (user_id) {
+                where.user_id = user_id;
+            }
+        }
+
+        // Filter theo trạng thái
+        if (status) {
+            where.deposit_status = status;
+        }
+
+        // Filter theo loại nạp tiền
+        if (deposit_type) {
+            where.deposit_type = deposit_type;
+        }
+
+        // Filter theo ngân hàng
+        if (bankName) {
+            where.bankName = bankName;
+        }
+
+        // Filter theo khoảng thời gian
+        if (fromDate || toDate) {
+            where.created_at = {};
+            if (fromDate) {
+                where.created_at[Op.gte] = new Date(fromDate);
+            }
+            if (toDate) {
+                // Thêm 1 ngày để bao gồm cả ngày cuối
+                const endDate = new Date(toDate);
+                endDate.setHours(23, 59, 59, 999);
+                where.created_at[Op.lte] = endDate;
+            }
+        }
+
+        // Filter theo khoảng số tiền
+        if (minAmount || maxAmount) {
+            where.deposit_amount = {};
+            if (minAmount) {
+                where.deposit_amount[Op.gte] = parseFloat(minAmount);
+            }
+            if (maxAmount) {
+                where.deposit_amount[Op.lte] = parseFloat(maxAmount);
+            }
+        }
+
+        const { count, rows } = await DepositHistoryModel.findAndCountAll({
+            where,
+            include: [
+                {
+                    model: UserModel,
+                    as: 'user',
+                    attributes: ['id', 'fullName', 'email']
+                }
+            ],
+            order: [[sortBy, order.toUpperCase()]],
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Lấy danh sách lịch sử nạp tiền thành công",
+            data: {
+                deposits: rows,
+                pagination: {
+                    total: count,
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    totalPages: Math.ceil(count / limit)
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách lịch sử nạp tiền:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi server khi lấy danh sách lịch sử nạp tiền",
+            error: error.message
+        });
+    }
+};
+
+// Lấy danh sách withdrawn_history
+export const getWithdrawHistory = async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 10,
+            sortBy = 'created_at',
+            order = 'DESC',
+            status,
+            user_id,
+            fromDate,
+            toDate,
+            minAmount,
+            maxAmount,
+            bankName
+        } = req.query;
+
+        const offset = (page - 1) * limit;
+        const userId = req.userId;
+        const isAdmin = req.role === 'admin' || req.role === 'superadmin';
+
+        const where = {};
+
+        // Nếu không phải admin, chỉ lấy dữ liệu của user hiện tại
+        if (!isAdmin) {
+            where.user_id = userId;
+        } else {
+            // Admin có thể filter theo user_id hoặc lấy tất cả
+            if (user_id) {
+                where.user_id = user_id;
+            }
+        }
+
+        // Filter theo trạng thái
+        if (status) {
+            where.status = status;
+        }
+
+        // Filter theo ngân hàng
+        if (bankName) {
+            where.bankName = bankName;
+        }
+
+        // Filter theo khoảng thời gian
+        if (fromDate || toDate) {
+            where.created_at = {};
+            if (fromDate) {
+                where.created_at[Op.gte] = new Date(fromDate);
+            }
+            if (toDate) {
+                // Thêm 1 ngày để bao gồm cả ngày cuối
+                const endDate = new Date(toDate);
+                endDate.setHours(23, 59, 59, 999);
+                where.created_at[Op.lte] = endDate;
+            }
+        }
+
+        // Filter theo khoảng số tiền
+        if (minAmount || maxAmount) {
+            where.amount = {};
+            if (minAmount) {
+                where.amount[Op.gte] = parseFloat(minAmount);
+            }
+            if (maxAmount) {
+                where.amount[Op.lte] = parseFloat(maxAmount);
+            }
+        }
+
+        const { count, rows } = await WithdrawHistoryModel.findAndCountAll({
+            where,
+            include: [
+                {
+                    model: UserModel,
+                    as: 'user',
+                    attributes: ['id', 'fullName', 'email']
+                }
+            ],
+            order: [[sortBy, order.toUpperCase()]],
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Lấy danh sách lịch sử rút tiền thành công",
+            data: {
+                withdraws: rows,
+                pagination: {
+                    total: count,
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    totalPages: Math.ceil(count / limit)
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách lịch sử rút tiền:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi server khi lấy danh sách lịch sử rút tiền",
+            error: error.message
+        });
+    }
+};
+
+// Lấy danh sách transactions_history
+export const getTransactionHistory = async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 10,
+            sortBy = 'created_at',
+            order = 'DESC',
+            transactionType,
+            transactionStatus,
+            user_id,
+            fromDate,
+            toDate,
+            minAmount,
+            maxAmount,
+            transferType
+        } = req.query;
+
+        const offset = (page - 1) * limit;
+        const userId = req.userId;
+        const isAdmin = req.role === 'admin' || req.role === 'superadmin';
+
+        const where = {};
+
+        // Nếu không phải admin, chỉ lấy dữ liệu của user hiện tại
+        if (!isAdmin) {
+            where.user_id = userId;
+        } else {
+            // Admin có thể filter theo user_id hoặc lấy tất cả
+            if (user_id) {
+                where.user_id = user_id;
+            }
+        }
+
+        // Filter theo loại giao dịch
+        if (transactionType) {
+            where.transactionType = transactionType;
+        }
+
+        // Filter theo trạng thái giao dịch
+        if (transactionStatus) {
+            where.transactionStatus = transactionStatus;
+        }
+
+        // Filter theo loại chuyển khoản
+        if (transferType) {
+            where.transferType = transferType;
+        }
+
+        // Filter theo khoảng thời gian
+        if (fromDate || toDate) {
+            where.created_at = {};
+            if (fromDate) {
+                where.created_at[Op.gte] = new Date(fromDate);
+            }
+            if (toDate) {
+                // Thêm 1 ngày để bao gồm cả ngày cuối
+                const endDate = new Date(toDate);
+                endDate.setHours(23, 59, 59, 999);
+                where.created_at[Op.lte] = endDate;
+            }
+        }
+
+        // Filter theo khoảng số tiền
+        if (minAmount || maxAmount) {
+            where.amount = {};
+            if (minAmount) {
+                where.amount[Op.gte] = parseFloat(minAmount);
+            }
+            if (maxAmount) {
+                where.amount[Op.lte] = parseFloat(maxAmount);
+            }
+        }
+
+        const { count, rows } = await TransactionHistoryModel.findAndCountAll({
+            where,
+            include: [
+                {
+                    model: UserModel,
+                    as: 'user',
+                    attributes: ['id', 'fullName', 'email']
+                }
+            ],
+            order: [[sortBy, order.toUpperCase()]],
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Lấy danh sách lịch sử giao dịch thành công",
+            data: {
+                transactions: rows,
+                pagination: {
+                    total: count,
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    totalPages: Math.ceil(count / limit)
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách lịch sử giao dịch:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi server khi lấy danh sách lịch sử giao dịch",
+            error: error.message
+        });
+    }
+};
+
+// Admin cộng tiền cho user
+export const adminAddBalance = async (req, res) => {
+    let transaction;
+    try {
+        const { user_id, amount, note } = req.body;
+
+        if (!user_id || !amount) {
+            return res.status(400).json({
+                success: false,
+                message: "Thiếu user_id hoặc amount"
+            });
+        }
+
+        const addAmount = parseFloat(amount);
+        if (Number.isNaN(addAmount) || addAmount <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Giá trị amount không hợp lệ"
+            });
+        }
+
+        transaction = await sequelize.transaction();
+
+        const user = await UserModel.findByPk(user_id, { transaction, lock: transaction.LOCK.UPDATE });
+        if (!user) {
+            await transaction.rollback();
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy người dùng"
+            });
+        }
+
+        const beforeBalance = parseFloat(user.balance);
+        const afterBalance = beforeBalance + addAmount;
+
+        await user.update({ balance: afterBalance }, { transaction });
+
+        await TransactionHistoryModel.create({
+            user_id: user_id,
+            transactionType: 'adjustment',
+            referenceId: null,
+            amount: addAmount,
+            beforeBalance,
+            afterBalance,
+            transactionStatus: 'success',
+            transferType: 'admin_adjustment',
+            description: note || `Admin điều chỉnh số dư: +${addAmount.toLocaleString('vi-VN')} VNĐ`
+        }, { transaction });
+
+        await transaction.commit();
+
+        return res.status(200).json({
+            success: true,
+            message: "Cộng tiền thành công",
+            data: {
+                user_id: user_id,
+                amount_added: addAmount,
+                before_balance: beforeBalance,
+                after_balance: afterBalance
+            }
+        });
+
+    } catch (error) {
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error("Lỗi rollback transaction:", rollbackError);
+            }
+        }
+
+        console.error("Lỗi khi cộng tiền:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi server khi cộng tiền",
+            error: error.message
+        });
+    }
+};

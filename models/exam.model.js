@@ -73,6 +73,12 @@ const ExamModel = sequelize.define('Exams', {
         allowNull: true,
         defaultValue: null,
         comment: 'text | editor'
+    },
+    image_url: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null,
+        comment: 'URL của ảnh đề thi'
     }
 }, {
     timestamps: true,

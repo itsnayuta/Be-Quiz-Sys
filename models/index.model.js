@@ -16,27 +16,31 @@ import RecentLoginModel from "./recent_login.model.js";
 import ExamPurchaseModel from "./exam_purchase.model.js";
 import ExamCheatingLogModel from "./exam_cheating_log.model.js";
 import StudentExamStatusModel from "./student_exam_status.model.js";
+import DepositHistoryModel from "./deposit_history.model.js";
+import WithdrawHistoryModel from "./withdrawn_history.model.js";
+import TransactionHistoryModel from "./transactions_history.model.js";
+import ExamRatingModel from "./exam_rating.model.js";
 
 // User(Teacher) 1-N Classes
 UserModel.hasMany(ClassesModel, {
-  foreignKey: 'teacher_id', 
-  as: 'classes'     
+  foreignKey: 'teacher_id',
+  as: 'classes'
 });
 
 ClassesModel.belongsTo(UserModel, {
-  foreignKey: 'teacher_id',  
-  as: 'teacher'            
+  foreignKey: 'teacher_id',
+  as: 'teacher'
 });
 
 // User(Student) N-N Classes through (ClassStudent)
-UserModel.belongsToMany(ClassesModel,{
+UserModel.belongsToMany(ClassesModel, {
   through: ClassStudentModel,
   foreignKey: 'student_id',
   otherKey: 'class_id',
   as: 'joinedClasses'
 });
 
-ClassesModel.belongsToMany(UserModel,{
+ClassesModel.belongsToMany(UserModel, {
   through: ClassStudentModel,
   foreignKey: 'class_id',
   otherKey: 'student_id',
@@ -51,40 +55,40 @@ ClassesModel.hasMany(ExamModel, {
 });
 
 //User(1-N) PostClasses
-UserModel.hasMany(PostClassesModel,{
+UserModel.hasMany(PostClassesModel, {
   foreignKey: 'user_id',
 })
-PostClassesModel.belongsTo(UserModel,{
+PostClassesModel.belongsTo(UserModel, {
   foreignKey: 'user_id',
   as: 'author'
 })
 
 //Classes (1-N) Post
-ClassesModel.hasMany(PostClassesModel,{
-  foreignKey:'class_id',
+ClassesModel.hasMany(PostClassesModel, {
+  foreignKey: 'class_id',
 })
-PostClassesModel.belongsTo(ClassesModel,{
+PostClassesModel.belongsTo(ClassesModel, {
   foreignKey: 'class_id'
 
 })
 
 //User (1-N) Post Comment
-UserModel.hasMany(PostCommentsModel,{
-  foreignKey:'user_id'
+UserModel.hasMany(PostCommentsModel, {
+  foreignKey: 'user_id'
 
 })
-PostCommentsModel.belongsTo(UserModel,{
-  foreignKey:'user_id',
+PostCommentsModel.belongsTo(UserModel, {
+  foreignKey: 'user_id',
   as: 'author'
 })
 
 //Post Class (1-N) Post Comment
-PostClassesModel.hasMany(PostCommentsModel,{
-  foreignKey:'post_id',
+PostClassesModel.hasMany(PostCommentsModel, {
+  foreignKey: 'post_id',
   as: 'comments'
 })
-PostCommentsModel.belongsTo(PostClassesModel,{
-  foreignKey:'post_id',
+PostCommentsModel.belongsTo(PostClassesModel, {
+  foreignKey: 'post_id',
 })
 
 ExamModel.belongsTo(ClassesModel, {
@@ -297,12 +301,12 @@ NotificationModel.belongsTo(UserModel, {
 
 
 //User 1-N RecentLogin
-UserModel.hasMany(RecentLoginModel,{
-    foreignKey:  'user_id',
-    as: 'login_list'
+UserModel.hasMany(RecentLoginModel, {
+  foreignKey: 'user_id',
+  as: 'login_list'
 })
-RecentLoginModel.belongsTo(UserModel,{
-    foreignKey: 'user_id'
+RecentLoginModel.belongsTo(UserModel, {
+  foreignKey: 'user_id'
 })
 
 // User N-N Exams through ExamPurchase (Purchased exams)
@@ -403,5 +407,71 @@ StudentExamStatusModel.belongsTo(ExamSessionModel, {
   as: 'currentSession'
 });
 
+// User 1-N Deposit_history
+UserModel.hasMany(DepositHistoryModel, {
+  foreignKey: 'user_id',
+  as: 'depositHistory'
+});
 
-export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel, ExamResultModel, PostClassesModel, PostCommentsModel, NotificationModel, RecentLoginModel, ExamPurchaseModel, ExamCheatingLogModel, StudentExamStatusModel };
+DepositHistoryModel.belongsTo(UserModel, {
+  foreignKey: 'user_id',
+  as: 'user'
+});
+
+// User 1-N Withdraw_history
+UserModel.hasMany(WithdrawHistoryModel, {
+  foreignKey: 'user_id',
+  as: 'withdrawHistory'
+});
+
+WithdrawHistoryModel.belongsTo(UserModel, {
+  foreignKey: 'user_id',
+  as: 'user'
+});
+
+// User 1-N Transactions_history
+UserModel.hasMany(TransactionHistoryModel, {
+  foreignKey: 'user_id',
+  as: 'transactions'
+});
+
+TransactionHistoryModel.belongsTo(UserModel, {
+  foreignKey: 'user_id',
+  as: 'user'
+});
+
+
+// Exam 1-N Exam_ratings
+ExamModel.hasMany(ExamRatingModel, {
+  foreignKey: 'exam_id',
+  as: 'ratings'
+});
+
+ExamRatingModel.belongsTo(ExamModel, {
+  foreignKey: 'exam_id',
+  as: 'exam'
+});
+
+// User 1-N Exam_ratings
+UserModel.hasMany(ExamRatingModel, {
+  foreignKey: 'user_id',
+  as: 'examRatings'
+});
+
+ExamRatingModel.belongsTo(UserModel, {
+  foreignKey: 'user_id',
+  as: 'user'
+});
+
+// Exam_results 1-1 Exam_ratings (optional)
+ExamResultModel.hasOne(ExamRatingModel, {
+  foreignKey: 'result_id',
+  as: 'rating'
+});
+
+ExamRatingModel.belongsTo(ExamResultModel, {
+  foreignKey: 'result_id',
+  as: 'result'
+});
+
+export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel, ExamResultModel, PostClassesModel, PostCommentsModel, NotificationModel, RecentLoginModel, ExamPurchaseModel, ExamCheatingLogModel, StudentExamStatusModel, DepositHistoryModel, WithdrawHistoryModel, TransactionHistoryModel, ExamRatingModel };

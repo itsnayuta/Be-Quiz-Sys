@@ -1,5 +1,6 @@
-import { ExamModel, ClassesModel, ClassStudentModel, QuestionModel, QuestionAnswerModel, StudentAnswerModel } from "../models/index.model.js";
+import { ExamModel, ClassesModel, ClassStudentModel, QuestionModel, QuestionAnswerModel, StudentAnswerModel, ExamRatingModel, UserModel } from "../models/index.model.js";
 import { Op } from "sequelize";
+import sequelize from "../config/db.config.js";
 import { notifyExamAssignedToClass } from "../services/notification.service.js";
 
 const ALLOWED_QUESTION_METHODS = ['text', 'editor'];
@@ -7,6 +8,34 @@ const ALLOWED_QUESTION_METHODS = ['text', 'editor'];
 function normalizeQuestionMethod(value) {
     if (!value) return null;
     return ALLOWED_QUESTION_METHODS.includes(value) ? value : null;
+}
+
+// Helper function để tính average rating của exam
+async function getExamAverageRating(examId) {
+    try {
+        const result = await ExamRatingModel.findOne({
+            where: { exam_id: examId },
+            attributes: [
+                [sequelize.fn('AVG', sequelize.col('rating')), 'average_rating'],
+                [sequelize.fn('COUNT', sequelize.col('id')), 'total_ratings']
+            ],
+            raw: true
+        });
+
+        const averageRating = result ? parseFloat(result.average_rating) || 0 : 0;
+        const totalRatings = result ? parseInt(result.total_ratings) || 0 : 0;
+
+        return {
+            average_rating: parseFloat(averageRating.toFixed(2)),
+            total_ratings: totalRatings
+        };
+    } catch (error) {
+        console.error('Error calculating average rating:', error);
+        return {
+            average_rating: 0,
+            total_ratings: 0
+        };
+    }
 }
 
 export const createExam = async (req, res) => {
@@ -22,7 +51,8 @@ export const createExam = async (req, res) => {
             is_paid,
             fee,
             is_public,
-            question_creation_method
+            question_creation_method,
+            image_url
         } = req.body;
 
         const created_by = req.userId; // Get from middleware
@@ -98,7 +128,8 @@ export const createExam = async (req, res) => {
             created_by,
             is_public: is_public || false,
             count: 0,
-            question_creation_method: normalizedQuestionMethod
+            question_creation_method: normalizedQuestionMethod,
+            image_url: image_url || null
         });
 
         // Gửi thông báo cho students nếu exam được gắn vào class
@@ -118,7 +149,7 @@ export const createExam = async (req, res) => {
     }
 };
 
-// Get exam by ID
+// Get exam by ID (merged for both teacher and student with role-based logic)
 export const getExamById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -131,7 +162,14 @@ export const getExamById = async (req, res) => {
                 {
                     model: ClassesModel,
                     as: 'class',
-                    attributes: ['id', 'className', 'classCode']
+                    attributes: ['id', 'className', 'classCode'],
+                    required: false
+                },
+                {
+                    model: UserModel,
+                    as: 'creator',
+                    attributes: ['id', 'fullName', 'email'],
+                    required: false
                 }
             ]
         });
@@ -140,52 +178,248 @@ export const getExamById = async (req, res) => {
             return res.status(404).send({ message: 'Exam not found' });
         }
 
-        // Teacher can only see their own exams
-        if (role === 'teacher' && exam.created_by !== userId) {
+        // Lấy số câu hỏi
+        const questionCount = await QuestionModel.count({
+            where: { exam_id: id }
+        });
+
+        if (role === 'teacher') {
+            // Teacher can only see their own exams
+            if (exam.created_by !== userId) {
+                return res.status(403).send({ 
+                    message: 'You do not have permission to view this exam' 
+                });
+            }
+
+            const examData = exam.toJSON();
+            examData.question_count = questionCount;
+            
+            // Thêm average rating
+            const ratingInfo = await getExamAverageRating(id);
+            examData.average_rating = ratingInfo.average_rating;
+            examData.total_ratings = ratingInfo.total_ratings;
+            
+            return res.status(200).send(examData);
+        } else if (role === 'student') {
+            // Student logic: check if exam is public and accessible
+            const student_id = userId;
+
+            if (!exam.is_public) {
+                return res.status(403).send({
+                    message: 'This exam is private and only available to the creator'
+                });
+            }
+
+            if (exam.class_id) {
+                const isMember = await ClassStudentModel.findOne({
+                    where: {
+                        class_id: exam.class_id,
+                        student_id
+                    }
+                });
+
+                if (!isMember) {
+                    return res.status(403).send({
+                        message: 'You are not a member of this class. Cannot view this exam.'
+                    });
+                }
+            }
+
+            // Thêm thông tin về trạng thái exam
+            const now = new Date();
+            const examData = exam.toJSON();
+            examData.question_count = questionCount;
+            
+            // Thêm average rating
+            const ratingInfo = await getExamAverageRating(id);
+            examData.average_rating = ratingInfo.average_rating;
+            examData.total_ratings = ratingInfo.total_ratings;
+            
+            // Xử lý trường hợp không giới hạn thời gian
+            if (!exam.start_time || !exam.end_time) {
+                examData.status = 'unlimited'; // Không giới hạn thời gian
+            } else {
+                const startTime = new Date(exam.start_time);
+                const endTime = new Date(exam.end_time);
+
+                if (now < startTime) {
+                    examData.status = 'upcoming';
+                } else if (now >= startTime && now <= endTime) {
+                    examData.status = 'ongoing';
+                } else {
+                    examData.status = 'ended';
+                }
+            }
+
+            return res.status(200).send(examData);
+        } else {
             return res.status(403).send({ 
-                message: 'You do not have permission to view this exam' 
+                message: 'Invalid role. Only teacher and student can access exams.' 
             });
         }
-
-        return res.status(200).send(exam);
 
     } catch (error) {
         return res.status(500).send({ message: error.message });
     }
 };
 
-// Get all exams (by class or all for teacher)
+// Get all exams (merged for both teacher and student with role-based logic)
 export const getExams = async (req, res) => {
     try {
         const userId = req.userId;
         const role = req.role;
         const { class_id } = req.query;
 
-        let whereCondition = {};
-
         if (role === 'teacher') {
             // Teacher can only see exams they created
-            whereCondition.created_by = userId;
+            let whereCondition = {
+                created_by: userId
+            };
             
             // Filter by class if provided
             if (class_id) {
                 whereCondition.class_id = class_id;
             }
-        }
 
-        const exams = await ExamModel.findAll({
-            where: whereCondition,
-            include: [
+            const exams = await ExamModel.findAll({
+                where: whereCondition,
+                include: [
+                    {
+                        model: ClassesModel,
+                        as: 'class',
+                        attributes: ['id', 'className', 'classCode']
+                    }
+                ],
+                order: [['created_at', 'DESC']]
+            });
+
+            // Thêm số câu hỏi và average rating cho mỗi exam
+            const examsWithQuestionCount = await Promise.all(
+                exams.map(async (exam) => {
+                    const examData = exam.toJSON();
+                    const questionCount = await QuestionModel.count({
+                        where: { exam_id: exam.id }
+                    });
+                    examData.question_count = questionCount;
+                    
+                    // Thêm average rating
+                    const ratingInfo = await getExamAverageRating(exam.id);
+                    examData.average_rating = ratingInfo.average_rating;
+                    examData.total_ratings = ratingInfo.total_ratings;
+                    
+                    return examData;
+                })
+            );
+
+            return res.status(200).send(examsWithQuestionCount);
+        } else if (role === 'student') {
+            // Student logic: public exams + exams in student's classes
+            const student_id = userId;
+
+            // Lấy danh sách class_id mà student đã join
+            const studentClasses = await ClassStudentModel.findAll({
+                where: { student_id: student_id },
+                attributes: ['class_id']
+            });
+
+            const studentClassIds = studentClasses.map(sc => sc.class_id);
+
+            const orConditions = [
                 {
-                    model: ClassesModel,
-                    as: 'class',
-                    attributes: ['id', 'className', 'classCode']
+                    is_public: true,
+                    class_id: null
                 }
-            ],
-            order: [['created_at', 'DESC']]
-        });
+            ];
 
-        return res.status(200).send(exams);
+            if (studentClassIds.length > 0) {
+                orConditions.push({
+                    is_public: true,
+                    class_id: {
+                        [Op.in]: studentClassIds
+                    }
+                });
+            }
+
+            let whereCondition = {
+                [Op.or]: orConditions
+            };
+
+            if (class_id) {
+                const isMember = await ClassStudentModel.findOne({
+                    where: {
+                        class_id,
+                        student_id
+                    }
+                });
+
+                if (!isMember) {
+                    return res.status(403).send({
+                        message: 'You are not a member of this class'
+                    });
+                }
+
+                whereCondition = {
+                    is_public: true,
+                    class_id
+                };
+            }
+
+            const exams = await ExamModel.findAll({
+                where: whereCondition,
+                include: [
+                    {
+                        model: ClassesModel,
+                        as: 'class',
+                        attributes: ['id', 'className', 'classCode'],
+                        required: false
+                    }
+                ],
+                order: [['created_at', 'DESC']]
+            });
+
+            // Thêm thông tin về trạng thái exam, số câu hỏi và average rating
+            const now = new Date();
+            const examsWithStatus = await Promise.all(
+                exams.map(async (exam) => {
+                    const examData = exam.toJSON();
+                    
+                    // Thêm số câu hỏi
+                    const questionCount = await QuestionModel.count({
+                        where: { exam_id: exam.id }
+                    });
+                    examData.question_count = questionCount;
+                    
+                    // Thêm average rating
+                    const ratingInfo = await getExamAverageRating(exam.id);
+                    examData.average_rating = ratingInfo.average_rating;
+                    examData.total_ratings = ratingInfo.total_ratings;
+                    
+                    // Xử lý trường hợp không giới hạn thời gian
+                    if (!exam.start_time || !exam.end_time) {
+                        examData.status = 'unlimited'; // Không giới hạn thời gian
+                    } else {
+                        const startTime = new Date(exam.start_time);
+                        const endTime = new Date(exam.end_time);
+
+                        if (now < startTime) {
+                            examData.status = 'upcoming';
+                        } else if (now >= startTime && now <= endTime) {
+                            examData.status = 'ongoing';
+                        } else {
+                            examData.status = 'ended';
+                        }
+                    }
+
+                    return examData;
+                })
+            );
+
+            return res.status(200).send(examsWithStatus);
+        } else {
+            return res.status(403).send({ 
+                message: 'Invalid role. Only teacher and student can access exams.' 
+            });
+        }
 
     } catch (error) {
         return res.status(500).send({ message: error.message });
@@ -208,7 +442,8 @@ export const updateExam = async (req, res) => {
             is_paid,
             fee,
             is_public,
-            question_creation_method
+            question_creation_method,
+            image_url
         } = req.body;
 
         // Find exam
@@ -357,6 +592,7 @@ export const updateExam = async (req, res) => {
         if (question_creation_method !== undefined && normalizedQuestionMethodValue !== undefined) {
             updateData.question_creation_method = normalizedQuestionMethodValue;
         }
+        if (image_url !== undefined) updateData.image_url = image_url || null;
 
         await exam.update(updateData);
 
@@ -689,6 +925,225 @@ export const getExamDetailForStudent = async (req, res) => {
         }
 
         return res.status(200).send(examData);
+
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
+};
+
+// Get similar exams (cùng class, cùng chủ đề, hoặc tên liên quan)
+export const getSimilarExams = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.userId;
+        const role = req.role;
+        const limit = parseInt(req.query.limit) || 6;
+
+        // Lấy thông tin exam hiện tại
+        const currentExam = await ExamModel.findOne({
+            where: { id },
+            include: [
+                {
+                    model: ClassesModel,
+                    as: 'class',
+                    attributes: ['id', 'className', 'classCode'],
+                    required: false
+                }
+            ]
+        });
+
+        if (!currentExam) {
+            return res.status(404).send({ message: 'Exam not found' });
+        }
+
+        // Kiểm tra quyền truy cập
+        if (role === 'teacher' && currentExam.created_by !== userId) {
+            return res.status(403).send({ 
+                message: 'You do not have permission to view this exam' 
+            });
+        } else if (role === 'student') {
+            if (!currentExam.is_public) {
+                return res.status(403).send({
+                    message: 'This exam is private and only available to the creator'
+                });
+            }
+
+            if (currentExam.class_id) {
+                const isMember = await ClassStudentModel.findOne({
+                    where: {
+                        class_id: currentExam.class_id,
+                        student_id: userId
+                    }
+                });
+
+                if (!isMember) {
+                    return res.status(403).send({
+                        message: 'You are not a member of this class. Cannot view this exam.'
+                    });
+                }
+            }
+        }
+
+        // Xây dựng điều kiện tìm kiếm bài thi tương tự
+        const orConditions = [];
+
+        // 1. Cùng class_id (nếu có)
+        if (currentExam.class_id) {
+            orConditions.push({
+                class_id: currentExam.class_id,
+                id: { [Op.ne]: id } // Loại trừ exam hiện tại
+            });
+        }
+
+        // 2. Tên tương tự (tìm các từ khóa trong title)
+        const titleWords = currentExam.title.split(/\s+/).filter(word => word.length > 2);
+        if (titleWords.length > 0) {
+            orConditions.push({
+                title: {
+                    [Op.or]: titleWords.map(word => ({
+                        [Op.like]: `%${word}%`
+                    }))
+                },
+                id: { [Op.ne]: id }
+            });
+        }
+
+        // 3. Cùng created_by (các bài thi khác của cùng giáo viên)
+        orConditions.push({
+            created_by: currentExam.created_by,
+            id: { [Op.ne]: id }
+        });
+
+        let whereCondition = {};
+
+        // Thêm điều kiện cho student (chỉ lấy public exams)
+        if (role === 'student') {
+            // Lấy danh sách class_id mà student đã join
+            const studentClasses = await ClassStudentModel.findAll({
+                where: { student_id: userId },
+                attributes: ['class_id']
+            });
+            const studentClassIds = studentClasses.map(sc => sc.class_id);
+
+            const studentOrConditions = [
+                { is_public: true, class_id: null }
+            ];
+
+            if (studentClassIds.length > 0) {
+                studentOrConditions.push({
+                    is_public: true,
+                    class_id: { [Op.in]: studentClassIds }
+                });
+            }
+
+            whereCondition = {
+                [Op.and]: [
+                    {
+                        [Op.or]: studentOrConditions
+                    },
+                    {
+                        [Op.or]: orConditions
+                    },
+                    {
+                        id: { [Op.ne]: id }
+                    }
+                ]
+            };
+        } else if (role === 'teacher') {
+            // Teacher chỉ thấy các exam của mình
+            whereCondition = {
+                [Op.and]: [
+                    {
+                        [Op.or]: orConditions
+                    },
+                    {
+                        created_by: userId
+                    },
+                    {
+                        id: { [Op.ne]: id }
+                    }
+                ]
+            };
+        } else {
+            whereCondition = {
+                [Op.and]: [
+                    {
+                        [Op.or]: orConditions
+                    },
+                    {
+                        id: { [Op.ne]: id }
+                    }
+                ]
+            };
+        }
+
+        const similarExams = await ExamModel.findAll({
+            where: whereCondition,
+            include: [
+                {
+                    model: ClassesModel,
+                    as: 'class',
+                    attributes: ['id', 'className', 'classCode'],
+                    required: false
+                },
+                {
+                    model: UserModel,
+                    as: 'creator',
+                    attributes: ['id', 'fullName', 'email'],
+                    required: false
+                }
+            ],
+            order: [
+                // Ưu tiên cùng class, sau đó cùng title, sau đó cùng creator
+                ['class_id', currentExam.class_id ? 'ASC' : 'DESC'],
+                ['created_at', 'DESC']
+            ],
+            limit: limit
+        });
+
+        // Thêm số câu hỏi, status và average rating cho mỗi exam
+        const now = new Date();
+        const examsWithDetails = await Promise.all(
+            similarExams.map(async (exam) => {
+                const examData = exam.toJSON();
+                
+                // Thêm số câu hỏi
+                const questionCount = await QuestionModel.count({
+                    where: { exam_id: exam.id }
+                });
+                examData.question_count = questionCount;
+                
+                // Thêm average rating
+                const ratingInfo = await getExamAverageRating(exam.id);
+                examData.average_rating = ratingInfo.average_rating;
+                examData.total_ratings = ratingInfo.total_ratings;
+                
+                // Thêm status
+                if (!exam.start_time || !exam.end_time) {
+                    examData.status = 'unlimited';
+                } else {
+                    const startTime = new Date(exam.start_time);
+                    const endTime = new Date(exam.end_time);
+
+                    if (now < startTime) {
+                        examData.status = 'upcoming';
+                    } else if (now >= startTime && now <= endTime) {
+                        examData.status = 'ongoing';
+                    } else {
+                        examData.status = 'ended';
+                    }
+                }
+
+                return examData;
+            })
+        );
+
+        // Chỉ lọc các bài thi đang diễn ra (ongoing) và không giới hạn (unlimited)
+        const filteredExams = examsWithDetails.filter(exam => 
+            exam.status === 'ongoing' || exam.status === 'unlimited'
+        );
+
+        return res.status(200).send(filteredExams);
 
     } catch (error) {
         return res.status(500).send({ message: error.message });

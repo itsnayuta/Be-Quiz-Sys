@@ -38,8 +38,13 @@ export const answerQuestion = async (req, res) => {
 
         // Kiểm tra session còn active không
         if (session.status !== 'in_progress') {
+            const statusMessages = {
+                'expired': 'Phiên làm bài đã hết hạn',
+                'submitted': 'Bài thi đã được nộp',
+                'cancelled': 'Phiên làm bài đã bị hủy'
+            };
             return res.status(400).send({ 
-                message: `Cannot answer question. Session status: ${session.status}` 
+                message: statusMessages[session.status] || `Không thể trả lời câu hỏi. Trạng thái: ${session.status}` 
             });
         }
 
@@ -50,7 +55,7 @@ export const answerQuestion = async (req, res) => {
         if (now > sessionEndTime) {
             await session.update({ status: 'expired' });
             return res.status(400).send({ 
-                message: 'Exam session has expired' 
+                message: 'Phiên làm bài đã hết hạn' 
             });
         }
 

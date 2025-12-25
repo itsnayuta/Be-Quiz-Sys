@@ -177,16 +177,69 @@ export const joinClassByCode = async (req, res) => {
 
 export const GetStudentFromClass = async (req,res) => {
     try{
-        const classCode = req.query.class;
+        const role = req.role;
+        const userId = req.userId;
+        const classCode = req.query.class || req.query.classCode;
+        const classId = req.query.class_id;
 
-        const classInfor = await ClassesModel.findOne({
-            where: {
-                classCode: classCode
-            }
-        })
+        let classInfor = null;
+
+        // Ưu tiên tìm theo classCode (mã lớp)
+        if (classCode) {
+            classInfor = await ClassesModel.findOne({
+                where: {
+                    classCode: classCode.toUpperCase()
+                }
+            });
+        } 
+        // Nếu không có classCode, tìm theo class_id
+        else if (classId) {
+            classInfor = await ClassesModel.findOne({
+                where: {
+                    id: classId
+                }
+            });
+        } else {
+            return res.status(400).send({ 
+                message: "Thiếu thông tin: cần cung cấp class (classCode) hoặc class_id" 
+            });
+        }
 
         if(!classInfor){
-            return res.status(404).send("Class not found")
+            return res.status(404).send({ 
+                message: "Không tìm thấy lớp học" 
+            });
+        }
+
+        // Nếu là student, kiểm tra xem student có thuộc lớp này không
+        if (role === 'student') {
+            const isMember = await ClassStudentModel.findOne({
+                where: {
+                    class_id: classInfor.id,
+                    student_id: userId,
+                    is_ban: false
+                }
+            });
+
+            if (!isMember) {
+                return res.status(403).send({ 
+                    message: "Bạn không thuộc lớp học này hoặc đã bị cấm" 
+                });
+            }
+        }
+
+        // Xác định attributes dựa trên role
+        let userAttributes = [];
+        let throughAttributes = [];
+
+        if (role === 'teacher' || role === 'admin' || role === 'superadmin') {
+            // Teacher/Admin: đầy đủ thông tin
+            userAttributes = ['id', 'fullName', 'email', 'balance', 'role', 'last_login', 'created_at'];
+            throughAttributes = ['joined_at', 'is_ban'];
+        } else {
+            // Student: chỉ thông tin cơ bản
+            userAttributes = ['id', 'fullName', 'email'];
+            throughAttributes = ['joined_at'];
         }
 
         const listStudent = await ClassesModel.findOne({
@@ -197,7 +250,11 @@ export const GetStudentFromClass = async (req,res) => {
             include: [
                 {
                     model: UserModel,
-                    as: "students"
+                    as: "students",
+                    attributes: userAttributes,
+                    through: {
+                        attributes: throughAttributes
+                    }
                 }
             ]
 

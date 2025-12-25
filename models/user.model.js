@@ -45,6 +45,11 @@ const UserModel = sequelize.define("User",{
 
     last_login: {
         type: DataTypes.DATE
+    },
+    avatar_url: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null
     }},{
         timestamps: true,
         createdAt: 'created_at',

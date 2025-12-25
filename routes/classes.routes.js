@@ -15,8 +15,8 @@ const authClasses = (app) =>{
     //Join Class
     app.get('/api/classes/join',verifyToken,verifyStudent,joinClassByCode)
 
-    // Get student from class
-    app.get('/api/classes/students',verifyToken,verifyTeacher,GetStudentFromClass)
+    // Get student from class (teacher: full info, student: basic info only)
+    app.get('/api/classes/students',verifyToken,GetStudentFromClass)
 
     // Ban student
     app.post('/api/classes/student/ban',verifyToken,verifyTeacher,BanStudent)
