@@ -64,6 +64,14 @@ import {
     deleteComment
 } from "../../controllers/admin/content.admin.controller.js";
 
+// Withdrawal Management
+import {
+    getAllWithdrawals,
+    getWithdrawalById,
+    approveWithdrawal,
+    rejectWithdrawal
+} from "../../controllers/admin/withdrawal.admin.controller.js";
+
 export default function(app) {
     app.use(function(req, res, next) {
         res.header(
@@ -282,6 +290,36 @@ export default function(app) {
         "/api/admin/comments/:id",
         [verifyToken, verifyAdmin],
         deleteComment
+    );
+
+    // ==================== WITHDRAWAL MANAGEMENT ====================
+    
+    // Get all withdrawal requests
+    app.get(
+        "/api/admin/withdrawals",
+        [verifyToken, verifyAdmin],
+        getAllWithdrawals
+    );
+
+    // Get withdrawal detail by ID
+    app.get(
+        "/api/admin/withdrawals/:id",
+        [verifyToken, verifyAdmin],
+        getWithdrawalById
+    );
+
+    // Approve withdrawal request
+    app.put(
+        "/api/admin/withdrawals/:id/approve",
+        [verifyToken, verifyAdmin],
+        approveWithdrawal
+    );
+
+    // Reject withdrawal request
+    app.put(
+        "/api/admin/withdrawals/:id/reject",
+        [verifyToken, verifyAdmin],
+        rejectWithdrawal
     );
 }
 
