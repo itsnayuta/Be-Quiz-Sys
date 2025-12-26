@@ -59,8 +59,8 @@ export const createExam = async (req, res) => {
 
         // Validate required fields
         if (!title || !minutes) {
-            return res.status(400).send({ 
-                message: 'Missing required fields: title, minutes' 
+            return res.status(400).send({
+                message: 'Missing required fields: title, minutes'
             });
         }
 
@@ -74,8 +74,8 @@ export const createExam = async (req, res) => {
             });
 
             if (!classInfo) {
-                return res.status(404).send({ 
-                    message: 'Class not found or you do not have permission to create exam for this class' 
+                return res.status(404).send({
+                    message: 'Class not found or you do not have permission to create exam for this class'
                 });
             }
         }
@@ -83,27 +83,27 @@ export const createExam = async (req, res) => {
         // Validate dates nếu có (cho phép null khi không giới hạn thời gian)
         let startDate = null;
         let endDate = null;
-        
+
         if (start_time && end_time) {
             startDate = new Date(start_time);
             endDate = new Date(end_time);
 
             if (startDate >= endDate) {
-                return res.status(400).send({ 
-                    message: 'End time must be after start time' 
+                return res.status(400).send({
+                    message: 'End time must be after start time'
                 });
             }
         } else if (start_time || end_time) {
             // Nếu chỉ có một trong hai, không hợp lệ
-            return res.status(400).send({ 
-                message: 'Both start_time and end_time must be provided together, or both can be null for unlimited time' 
+            return res.status(400).send({
+                message: 'Both start_time and end_time must be provided together, or both can be null for unlimited time'
             });
         }
 
         // Validate fee if is_paid is true
         if (is_paid && (!fee || fee <= 0)) {
-            return res.status(400).send({ 
-                message: 'Fee is required when is_paid is true' 
+            return res.status(400).send({
+                message: 'Fee is required when is_paid is true'
             });
         }
 
@@ -186,19 +186,19 @@ export const getExamById = async (req, res) => {
         if (role === 'teacher') {
             // Teacher can only see their own exams
             if (exam.created_by !== userId) {
-                return res.status(403).send({ 
-                    message: 'You do not have permission to view this exam' 
+                return res.status(403).send({
+                    message: 'You do not have permission to view this exam'
                 });
             }
 
             const examData = exam.toJSON();
             examData.question_count = questionCount;
-            
+
             // Thêm average rating
             const ratingInfo = await getExamAverageRating(id);
             examData.average_rating = ratingInfo.average_rating;
             examData.total_ratings = ratingInfo.total_ratings;
-            
+
             return res.status(200).send(examData);
         } else if (role === 'student') {
             // Student logic: check if exam is public and accessible
@@ -229,12 +229,12 @@ export const getExamById = async (req, res) => {
             const now = new Date();
             const examData = exam.toJSON();
             examData.question_count = questionCount;
-            
+
             // Thêm average rating
             const ratingInfo = await getExamAverageRating(id);
             examData.average_rating = ratingInfo.average_rating;
             examData.total_ratings = ratingInfo.total_ratings;
-            
+
             // Xử lý trường hợp không giới hạn thời gian
             if (!exam.start_time || !exam.end_time) {
                 examData.status = 'unlimited'; // Không giới hạn thời gian
@@ -253,8 +253,8 @@ export const getExamById = async (req, res) => {
 
             return res.status(200).send(examData);
         } else {
-            return res.status(403).send({ 
-                message: 'Invalid role. Only teacher and student can access exams.' 
+            return res.status(403).send({
+                message: 'Invalid role. Only teacher and student can access exams.'
             });
         }
 
@@ -268,18 +268,39 @@ export const getExams = async (req, res) => {
     try {
         const userId = req.userId;
         const role = req.role;
-        const { class_id } = req.query;
+        const {
+            class_id,
+            is_paid,
+            page = 1,
+            limit = 10,
+            offset
+        } = req.query;
+
+        // Parse pagination parameters
+        const pageNum = parseInt(page) || 1;
+        const limitNum = parseInt(limit) || 10;
+        const offsetNum = offset !== undefined ? parseInt(offset) : (pageNum - 1) * limitNum;
 
         if (role === 'teacher') {
             // Teacher can only see exams they created
             let whereCondition = {
                 created_by: userId
             };
-            
+
             // Filter by class if provided
             if (class_id) {
                 whereCondition.class_id = class_id;
             }
+
+            // Filter by is_paid if provided
+            if (is_paid !== undefined) {
+                whereCondition.is_paid = is_paid === 'true' || is_paid === true;
+            }
+
+            // Get total count for pagination
+            const totalCount = await ExamModel.count({
+                where: whereCondition
+            });
 
             const exams = await ExamModel.findAll({
                 where: whereCondition,
@@ -287,10 +308,13 @@ export const getExams = async (req, res) => {
                     {
                         model: ClassesModel,
                         as: 'class',
-                        attributes: ['id', 'className', 'classCode']
+                        attributes: ['id', 'className', 'classCode'],
+                        required: false
                     }
                 ],
-                order: [['created_at', 'DESC']]
+                order: [['created_at', 'DESC']],
+                limit: limitNum,
+                offset: offsetNum
             });
 
             // Thêm số câu hỏi và average rating cho mỗi exam
@@ -301,17 +325,26 @@ export const getExams = async (req, res) => {
                         where: { exam_id: exam.id }
                     });
                     examData.question_count = questionCount;
-                    
+
                     // Thêm average rating
                     const ratingInfo = await getExamAverageRating(exam.id);
                     examData.average_rating = ratingInfo.average_rating;
                     examData.total_ratings = ratingInfo.total_ratings;
-                    
+
                     return examData;
                 })
             );
 
-            return res.status(200).send(examsWithQuestionCount);
+            return res.status(200).send({
+                data: examsWithQuestionCount,
+                pagination: {
+                    page: pageNum,
+                    limit: limitNum,
+                    offset: offsetNum,
+                    total: totalCount,
+                    totalPages: Math.ceil(totalCount / limitNum)
+                }
+            });
         } else if (role === 'student') {
             // Student logic: public exams + exams in student's classes
             const student_id = userId;
@@ -324,6 +357,7 @@ export const getExams = async (req, res) => {
 
             const studentClassIds = studentClasses.map(sc => sc.class_id);
 
+            // Xây dựng điều kiện where: Lấy tất cả public exams (cả không thuộc class và thuộc class student đã join)
             const orConditions = [
                 {
                     is_public: true,
@@ -344,6 +378,7 @@ export const getExams = async (req, res) => {
                 [Op.or]: orConditions
             };
 
+            // Filter by class_id if provided
             if (class_id) {
                 const isMember = await ClassStudentModel.findOne({
                     where: {
@@ -364,6 +399,20 @@ export const getExams = async (req, res) => {
                 };
             }
 
+            // Filter by is_paid if provided
+            if (is_paid !== undefined) {
+                const isPaidValue = is_paid === 'true' || is_paid === true;
+                whereCondition = {
+                    ...whereCondition,
+                    is_paid: isPaidValue
+                };
+            }
+
+            // Get total count for pagination
+            const totalCount = await ExamModel.count({
+                where: whereCondition
+            });
+
             const exams = await ExamModel.findAll({
                 where: whereCondition,
                 include: [
@@ -374,7 +423,9 @@ export const getExams = async (req, res) => {
                         required: false
                     }
                 ],
-                order: [['created_at', 'DESC']]
+                order: [['created_at', 'DESC']],
+                limit: limitNum,
+                offset: offsetNum
             });
 
             // Thêm thông tin về trạng thái exam, số câu hỏi và average rating
@@ -382,18 +433,18 @@ export const getExams = async (req, res) => {
             const examsWithStatus = await Promise.all(
                 exams.map(async (exam) => {
                     const examData = exam.toJSON();
-                    
+
                     // Thêm số câu hỏi
                     const questionCount = await QuestionModel.count({
                         where: { exam_id: exam.id }
                     });
                     examData.question_count = questionCount;
-                    
+
                     // Thêm average rating
                     const ratingInfo = await getExamAverageRating(exam.id);
                     examData.average_rating = ratingInfo.average_rating;
                     examData.total_ratings = ratingInfo.total_ratings;
-                    
+
                     // Xử lý trường hợp không giới hạn thời gian
                     if (!exam.start_time || !exam.end_time) {
                         examData.status = 'unlimited'; // Không giới hạn thời gian
@@ -414,10 +465,19 @@ export const getExams = async (req, res) => {
                 })
             );
 
-            return res.status(200).send(examsWithStatus);
+            return res.status(200).send({
+                data: examsWithStatus,
+                pagination: {
+                    page: pageNum,
+                    limit: limitNum,
+                    offset: offsetNum,
+                    total: totalCount,
+                    totalPages: Math.ceil(totalCount / limitNum)
+                }
+            });
         } else {
-            return res.status(403).send({ 
-                message: 'Invalid role. Only teacher and student can access exams.' 
+            return res.status(403).send({
+                message: 'Invalid role. Only teacher and student can access exams.'
             });
         }
 
@@ -457,8 +517,8 @@ export const updateExam = async (req, res) => {
 
         // Check if user is the creator
         if (exam.created_by !== userId) {
-            return res.status(403).send({ 
-                message: 'You do not have permission to update this exam' 
+            return res.status(403).send({
+                message: 'You do not have permission to update this exam'
             });
         }
 
@@ -473,23 +533,23 @@ export const updateExam = async (req, res) => {
                 const endDate = new Date(end_time);
 
                 if (startDate >= endDate) {
-                    return res.status(400).send({ 
-                        message: 'End time must be after start time' 
+                    return res.status(400).send({
+                        message: 'End time must be after start time'
                     });
                 }
             } else if (start_time === null || end_time === null) {
                 // Chỉ một trong hai null, không hợp lệ
-                return res.status(400).send({ 
-                    message: 'Both start_time and end_time must be provided together, or both can be null for unlimited time' 
+                return res.status(400).send({
+                    message: 'Both start_time and end_time must be provided together, or both can be null for unlimited time'
                 });
             } else {
                 // Một trong hai được cung cấp, lấy giá trị từ exam hiện tại cho giá trị còn lại
                 const startDate = start_time ? new Date(start_time) : (exam.start_time ? new Date(exam.start_time) : null);
                 const endDate = end_time ? new Date(end_time) : (exam.end_time ? new Date(exam.end_time) : null);
-                
+
                 if (startDate && endDate && startDate >= endDate) {
-                    return res.status(400).send({ 
-                        message: 'End time must be after start time' 
+                    return res.status(400).send({
+                        message: 'End time must be after start time'
                     });
                 }
             }
@@ -503,15 +563,15 @@ export const updateExam = async (req, res) => {
         if (is_paid !== undefined && is_paid === true) {
             // Nếu is_paid được set thành true trong request, fee phải được gửi và hợp lệ
             if (fee === undefined || fee === null || fee <= 0) {
-                return res.status(400).send({ 
-                    message: 'Fee is required when is_paid is true' 
+                return res.status(400).send({
+                    message: 'Fee is required when is_paid is true'
                 });
             }
         } else if (is_paid === undefined && exam.is_paid === true && fee !== undefined) {
             // Nếu exam hiện tại có is_paid = true và fee được gửi trong request, validate fee
             if (fee === null || fee <= 0) {
-                return res.status(400).send({ 
-                    message: 'Fee must be greater than 0 when is_paid is true' 
+                return res.status(400).send({
+                    message: 'Fee must be greater than 0 when is_paid is true'
                 });
             }
         }
@@ -529,8 +589,8 @@ export const updateExam = async (req, res) => {
                 });
 
                 if (!classInfo) {
-                    return res.status(404).send({ 
-                        message: 'Class not found or you do not have permission to assign exam to this class' 
+                    return res.status(404).send({
+                        message: 'Class not found or you do not have permission to assign exam to this class'
                     });
                 }
             }
@@ -746,16 +806,16 @@ export const deleteExam = async (req, res) => {
 
         // Check if user is the creator
         if (exam.created_by !== userId) {
-            return res.status(403).send({ 
-                message: 'You do not have permission to delete this exam' 
+            return res.status(403).send({
+                message: 'You do not have permission to delete this exam'
             });
         }
 
         // Delete exam
         await exam.destroy();
 
-        return res.status(200).send({ 
-            message: 'Exam deleted successfully' 
+        return res.status(200).send({
+            message: 'Exam deleted successfully'
         });
 
     } catch (error) {
@@ -834,7 +894,7 @@ export const getAvailableExamsForStudent = async (req, res) => {
         const now = new Date();
         const examsWithStatus = exams.map(exam => {
             const examData = exam.toJSON();
-            
+
             // Xử lý trường hợp không giới hạn thời gian
             if (!exam.start_time || !exam.end_time) {
                 examData.status = 'unlimited'; // Không giới hạn thời gian
@@ -907,7 +967,7 @@ export const getExamDetailForStudent = async (req, res) => {
         // Thêm thông tin về trạng thái exam
         const now = new Date();
         const examData = exam.toJSON();
-        
+
         // Xử lý trường hợp không giới hạn thời gian
         if (!exam.start_time || !exam.end_time) {
             examData.status = 'unlimited'; // Không giới hạn thời gian
@@ -958,8 +1018,8 @@ export const getSimilarExams = async (req, res) => {
 
         // Kiểm tra quyền truy cập
         if (role === 'teacher' && currentExam.created_by !== userId) {
-            return res.status(403).send({ 
-                message: 'You do not have permission to view this exam' 
+            return res.status(403).send({
+                message: 'You do not have permission to view this exam'
             });
         } else if (role === 'student') {
             if (!currentExam.is_public) {
@@ -1106,18 +1166,18 @@ export const getSimilarExams = async (req, res) => {
         const examsWithDetails = await Promise.all(
             similarExams.map(async (exam) => {
                 const examData = exam.toJSON();
-                
+
                 // Thêm số câu hỏi
                 const questionCount = await QuestionModel.count({
                     where: { exam_id: exam.id }
                 });
                 examData.question_count = questionCount;
-                
+
                 // Thêm average rating
                 const ratingInfo = await getExamAverageRating(exam.id);
                 examData.average_rating = ratingInfo.average_rating;
                 examData.total_ratings = ratingInfo.total_ratings;
-                
+
                 // Thêm status
                 if (!exam.start_time || !exam.end_time) {
                     examData.status = 'unlimited';
@@ -1139,7 +1199,7 @@ export const getSimilarExams = async (req, res) => {
         );
 
         // Chỉ lọc các bài thi đang diễn ra (ongoing) và không giới hạn (unlimited)
-        const filteredExams = examsWithDetails.filter(exam => 
+        const filteredExams = examsWithDetails.filter(exam =>
             exam.status === 'ongoing' || exam.status === 'unlimited'
         );
 

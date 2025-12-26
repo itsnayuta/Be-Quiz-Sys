@@ -23,8 +23,8 @@ export const startExam = async (req, res) => {
         });
 
         if (!exam) {
-            return res.status(404).send({ 
-                message: 'Exam not found' 
+            return res.status(404).send({
+                message: 'Exam not found'
             });
         }
 
@@ -37,14 +37,14 @@ export const startExam = async (req, res) => {
             const examEndTime = new Date(exam.end_time);
 
             if (now < examStartTime) {
-                return res.status(400).send({ 
-                    message: 'Bài thi chưa bắt đầu' 
+                return res.status(400).send({
+                    message: 'Bài thi chưa bắt đầu'
                 });
             }
 
             if (now > examEndTime) {
-                return res.status(400).send({ 
-                    message: 'Bài thi đã kết thúc' 
+                return res.status(400).send({
+                    message: 'Bài thi đã kết thúc'
                 });
             }
         }
@@ -67,14 +67,14 @@ export const startExam = async (req, res) => {
             });
 
             if (!isMember) {
-                return res.status(403).send({ 
-                    message: 'You are not a member of this class. Cannot take this exam.' 
+                return res.status(403).send({
+                    message: 'You are not a member of this class. Cannot take this exam.'
                 });
             }
         } else if (!exam.is_public) {
             // Nếu exam không thuộc class và không public, không cho phép
-            return res.status(403).send({ 
-                message: 'This exam is not available for you' 
+            return res.status(403).send({
+                message: 'This exam is not available for you'
             });
         }
 
@@ -108,8 +108,8 @@ export const startExam = async (req, res) => {
                 });
             } else {
                 // Session đã hết hạn, cập nhật status
-                await existingSession.update({ 
-                    status: 'expired' 
+                await existingSession.update({
+                    status: 'expired'
                 });
             }
         }
@@ -118,19 +118,21 @@ export const startExam = async (req, res) => {
         let transaction = null;
         if (exam.is_paid) {
             const user = await UserModel.findOne({ where: { id: student_id } });
-            
+            console.log(transaction)
+
             if (!user) {
-                return res.status(404).send({ 
-                    message: 'User not found' 
+                return res.status(404).send({
+                    message: 'User not found'
                 });
             }
 
             // Kiểm tra balance
             const userBalance = parseFloat(user.balance || 0);
+            console.log(userBalance)
             const examFee = parseFloat(exam.fee || 0);
 
             if (userBalance < examFee) {
-                return res.status(400).send({ 
+                return res.status(400).send({
                     message: 'Insufficient balance to take this exam',
                     currentBalance: userBalance,
                     requiredAmount: examFee
@@ -143,6 +145,7 @@ export const startExam = async (req, res) => {
             try {
                 // Trừ tiền từ balance
                 const newBalance = userBalance - examFee;
+                console.log(newBalance)
                 await user.update({
                     balance: newBalance
                 }, { transaction });
@@ -157,13 +160,23 @@ export const startExam = async (req, res) => {
                 await transaction.commit();
                 transaction = null;
             } catch (paymentError) {
-                if (transaction && !transaction.finished) {
-                    await transaction.rollback();
+                if (transaction) await transaction.rollback();
+
+                // Log the specific validation details
+                if (paymentError.name === 'SequelizeValidationError') {
+                    console.error("Validation Details:", paymentError.errors.map(e => ({
+                        field: e.path,
+                        message: e.message,
+                        value: e.value
+                    })));
+                } else {
+                    console.error("General Error:", paymentError);
                 }
-                console.error("Error processing payment:", paymentError);
-                return res.status(500).send({ 
+
+                return res.status(500).send({
                     message: 'Error processing payment for exam',
-                    error: paymentError.message
+                    error: paymentError.message,
+                    details: paymentError.errors ? paymentError.errors.map(e => e.message) : null
                 });
             }
         }
@@ -199,8 +212,8 @@ export const startExam = async (req, res) => {
                 });
             } else {
                 // Session đã hết hạn, cập nhật status
-                await doubleCheckSession.update({ 
-                    status: 'expired' 
+                await doubleCheckSession.update({
+                    status: 'expired'
                 });
             }
         }
@@ -288,18 +301,18 @@ export const getCurrentSession = async (req, res) => {
         });
 
         if (!session) {
-            return res.status(404).send({ 
-                message: 'No active exam session found' 
+            return res.status(404).send({
+                message: 'No active exam session found'
             });
         }
 
         // Kiểm tra xem session còn hợp lệ không
         const now = new Date();
         const sessionEndTime = new Date(session.end_time);
-        
+
         if (now > sessionEndTime) {
             const { result } = await finalizeSessionResult(session, student_id);
-            return res.status(400).send({ 
+            return res.status(400).send({
                 message: 'Phiên làm bài đã hết hạn và đã được tự động nộp',
                 result
             });
@@ -358,8 +371,8 @@ export const getSessionQuestionsForStudent = async (req, res) => {
         });
 
         if (!session) {
-            return res.status(404).send({ 
-                message: 'Exam session not found or you do not have permission' 
+            return res.status(404).send({
+                message: 'Exam session not found or you do not have permission'
             });
         }
 
