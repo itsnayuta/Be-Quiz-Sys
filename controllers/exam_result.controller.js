@@ -103,21 +103,28 @@ export const getResult = async (req, res) => {
             });
         }
 
-        // Lấy tất cả câu trả lời của session
+        // Lấy tất cả câu hỏi của exam
+        const allQuestions = await QuestionModel.findAll({
+            where: { exam_id: result.exam_id },
+            attributes: ['id', 'question_text', 'type', 'difficulty', 'order', 'image_url'],
+            include: [
+                {
+                    model: QuestionAnswerModel,
+                    as: 'answers',
+                    attributes: ['id', 'text', 'is_correct']
+                }
+            ],
+            order: [['order', 'ASC']]
+        });
+
+        // Lấy tất cả câu trả lời của session (chỉ những câu đã trả lời)
         const studentAnswers = await StudentAnswerModel.findAll({
             where: { session_id: session_id },
             include: [
                 {
                     model: QuestionModel,
                     as: 'question',
-                    attributes: ['id', 'question_text', 'type', 'difficulty', 'order', 'image_url'],
-                    include: [
-                        {
-                            model: QuestionAnswerModel,
-                            as: 'answers',
-                            attributes: ['id', 'text', 'is_correct']
-                        }
-                    ]
+                    attributes: ['id']
                 },
                 {
                     model: QuestionAnswerModel,
@@ -125,15 +132,63 @@ export const getResult = async (req, res) => {
                     attributes: ['id', 'text', 'is_correct'],
                     required: false
                 }
-            ],
-            order: [
-                [{ model: QuestionModel, as: 'question' }, 'order', 'ASC']
             ]
+        });
+
+        // Tạo map để tra cứu nhanh câu trả lời theo question_id
+        const answerMap = new Map();
+        studentAnswers.forEach(answer => {
+            answerMap.set(answer.exam_question_id, answer);
+        });
+
+        // Merge tất cả câu hỏi với câu trả lời (nếu có)
+        const answersWithAllQuestions = allQuestions.map(question => {
+            const studentAnswer = answerMap.get(question.id);
+            
+            if (studentAnswer) {
+                // Câu hỏi đã được trả lời
+                return {
+                    id: studentAnswer.id,
+                    exam_question_id: question.id,
+                    question: {
+                        id: question.id,
+                        question_text: question.question_text,
+                        type: question.type,
+                        difficulty: question.difficulty,
+                        order: question.order,
+                        image_url: question.image_url,
+                        answers: question.answers
+                    },
+                    selectedAnswer: studentAnswer.selectedAnswer,
+                    answer_text: studentAnswer.answer_text,
+                    is_correct: studentAnswer.is_correct,
+                    score: studentAnswer.score
+                };
+            } else {
+                // Câu hỏi chưa được trả lời (bỏ trống)
+                return {
+                    id: null,
+                    exam_question_id: question.id,
+                    question: {
+                        id: question.id,
+                        question_text: question.question_text,
+                        type: question.type,
+                        difficulty: question.difficulty,
+                        order: question.order,
+                        image_url: question.image_url,
+                        answers: question.answers
+                    },
+                    selectedAnswer: null,
+                    answer_text: null,
+                    is_correct: false,
+                    score: 0
+                };
+            }
         });
 
         return res.status(200).send({
             result: result,
-            answers: studentAnswers
+            answers: answersWithAllQuestions
         });
 
     } catch (error) {

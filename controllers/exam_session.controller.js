@@ -1,16 +1,16 @@
-import { ExamSessionModel, ExamModel, UserModel, ClassesModel, ClassStudentModel, QuestionModel, QuestionAnswerModel, ExamPurchaseModel } from "../models/index.model.js";
+import { ExamSessionModel, ExamModel, UserModel, ClassesModel, ClassStudentModel, QuestionModel, QuestionAnswerModel, ExamPurchaseModel, TransactionHistoryModel } from "../models/index.model.js";
 import { genCode } from "../utils/generateClassCode.js";
 import { finalizeSessionResult } from "../services/exam_result.service.js";
 import { updateStatusOnStart } from "../services/student_exam_status.service.js";
 import sequelize from "../config/db.config.js";
 
-// Bắt đầu bài thi (Tạo exam session)
+// tao exam session
 export const startExam = async (req, res) => {
     try {
         const { exam_id } = req.params;
         const student_id = req.userId;
 
-        // Kiểm tra exam có tồn tại không
+        // check exam existed
         const exam = await ExamModel.findOne({
             where: { id: exam_id },
             include: [
@@ -23,41 +23,39 @@ export const startExam = async (req, res) => {
         });
 
         if (!exam) {
-            return res.status(404).send({ 
-                message: 'Exam not found' 
+            return res.status(404).send({
+                message: 'Exam not found'
             });
         }
 
-        // Định nghĩa now ở đây để dùng cho toàn bộ hàm
+        // check date
         const now = new Date();
-
-        // Kiểm tra thời gian bài thi có hợp lệ không (chỉ khi có giới hạn thời gian)
         if (exam.start_time && exam.end_time) {
             const examStartTime = new Date(exam.start_time);
             const examEndTime = new Date(exam.end_time);
 
             if (now < examStartTime) {
-                return res.status(400).send({ 
-                    message: 'Bài thi chưa bắt đầu' 
+                return res.status(400).send({
+                    message: 'Bài thi chưa bắt đầu'
                 });
             }
 
             if (now > examEndTime) {
-                return res.status(400).send({ 
-                    message: 'Bài thi đã kết thúc' 
+                return res.status(400).send({
+                    message: 'Bài thi đã kết thúc'
                 });
             }
         }
-        // Nếu không có start_time và end_time (null), không kiểm tra thời gian (không giới hạn)
 
-        // Kiểm tra trạng thái public/private
+
+        // public or private
         if (!exam.is_public) {
             return res.status(403).send({
                 message: 'This exam is private and cannot be accessed by students'
             });
         }
 
-        // Kiểm tra nếu exam thuộc class, student phải là thành viên của class
+        // student class
         if (exam.class_id) {
             const isMember = await ClassStudentModel.findOne({
                 where: {
@@ -67,18 +65,19 @@ export const startExam = async (req, res) => {
             });
 
             if (!isMember) {
-                return res.status(403).send({ 
-                    message: 'You are not a member of this class. Cannot take this exam.' 
+                return res.status(403).send({
+                    message: 'You are not a member of this class. Cannot take this exam.'
                 });
             }
         } else if (!exam.is_public) {
-            // Nếu exam không thuộc class và không public, không cho phép
-            return res.status(403).send({ 
-                message: 'This exam is not available for you' 
+            // check public
+            return res.status(403).send({
+                message: 'This exam is not available for you'
             });
         }
 
-        // Kiểm tra xem student đã bắt đầu exam session chưa
+        // is start sesion
+        // check session existed
         const existingSession = await ExamSessionModel.findOne({
             where: {
                 exam_id: exam_id,
@@ -108,8 +107,8 @@ export const startExam = async (req, res) => {
                 });
             } else {
                 // Session đã hết hạn, cập nhật status
-                await existingSession.update({ 
-                    status: 'expired' 
+                await existingSession.update({
+                    status: 'expired'
                 });
             }
         }
@@ -118,19 +117,21 @@ export const startExam = async (req, res) => {
         let transaction = null;
         if (exam.is_paid) {
             const user = await UserModel.findOne({ where: { id: student_id } });
-            
+            console.log(transaction)
+
             if (!user) {
-                return res.status(404).send({ 
-                    message: 'User not found' 
+                return res.status(404).send({
+                    message: 'User not found'
                 });
             }
 
             // Kiểm tra balance
             const userBalance = parseFloat(user.balance || 0);
+            console.log(userBalance)
             const examFee = parseFloat(exam.fee || 0);
 
             if (userBalance < examFee) {
-                return res.status(400).send({ 
+                return res.status(400).send({
                     message: 'Insufficient balance to take this exam',
                     currentBalance: userBalance,
                     requiredAmount: examFee
@@ -141,29 +142,82 @@ export const startExam = async (req, res) => {
             transaction = await sequelize.transaction();
 
             try {
-                // Trừ tiền từ balance
+                // Trừ tiền từ balance của student
                 const newBalance = userBalance - examFee;
+                console.log(newBalance)
                 await user.update({
                     balance: newBalance
                 }, { transaction });
 
-                // Tạo bản ghi purchase để tracking (pay-per-attempt)
-                await ExamPurchaseModel.create({
+                const examfreeofTeacher = examFee * 0.8;
+                // purchase model
+                const purchase = await ExamPurchaseModel.create({
                     user_id: student_id,
                     exam_id: exam_id,
-                    purchase_price: examFee
+                    purchase_price: examfreeofTeacher
                 }, { transaction });
+
+                // transaction student
+                await TransactionHistoryModel.create({
+                    user_id: student_id,
+                    transactionType: 'purchase',
+                    referenceId: purchase.id,
+                    amount: examFee,
+                    transferType: 'out',
+                    beforeBalance: userBalance,
+                    afterBalance: newBalance,
+                    transactionStatus: 'success',
+                    description: `Mua đề thi: ${exam.title}`
+                }, { transaction });
+
+                // add balance teacher
+                const teacher = await UserModel.findByPk(exam.created_by, {
+                    transaction,
+                    lock: transaction.LOCK.UPDATE
+                });
+
+                const teacherBalance = parseFloat(teacher.balance || 0);
+                const teacherNewBalance = teacherBalance + examfreeofTeacher;
+
+                await teacher.update({
+                    balance: teacherNewBalance
+                }, { transaction });
+
+                // transaction teacher
+                await TransactionHistoryModel.create({
+                    user_id: exam.created_by,
+                    transactionType: 'purchase',
+                    transferType: 'in',
+                    referenceId: purchase.id,
+                    amount: examfreeofTeacher,
+                    beforeBalance: teacherBalance,
+                    afterBalance: teacherNewBalance,
+                    transactionStatus: 'success',
+                    description: `${user.fullName} ` + 'mua lượt thi: ' + `${exam.title}`,
+                }, { transaction });
+
+
 
                 await transaction.commit();
                 transaction = null;
+
             } catch (paymentError) {
-                if (transaction && !transaction.finished) {
-                    await transaction.rollback();
+                if (transaction) await transaction.rollback();
+                // error detail
+                if (paymentError.name === 'SequelizeValidationError') {
+                    console.error("Validation Details:", paymentError.errors.map(e => ({
+                        field: e.path,
+                        message: e.message,
+                        value: e.value
+                    })));
+                } else {
+                    console.error("General Error:", paymentError);
                 }
-                console.error("Error processing payment:", paymentError);
-                return res.status(500).send({ 
+
+                return res.status(500).send({
                     message: 'Error processing payment for exam',
-                    error: paymentError.message
+                    error: paymentError.message,
+                    details: paymentError.errors ? paymentError.errors.map(e => e.message) : null
                 });
             }
         }
@@ -199,8 +253,8 @@ export const startExam = async (req, res) => {
                 });
             } else {
                 // Session đã hết hạn, cập nhật status
-                await doubleCheckSession.update({ 
-                    status: 'expired' 
+                await doubleCheckSession.update({
+                    status: 'expired'
                 });
             }
         }
@@ -288,18 +342,18 @@ export const getCurrentSession = async (req, res) => {
         });
 
         if (!session) {
-            return res.status(404).send({ 
-                message: 'No active exam session found' 
+            return res.status(404).send({
+                message: 'No active exam session found'
             });
         }
 
         // Kiểm tra xem session còn hợp lệ không
         const now = new Date();
         const sessionEndTime = new Date(session.end_time);
-        
+
         if (now > sessionEndTime) {
             const { result } = await finalizeSessionResult(session, student_id);
-            return res.status(400).send({ 
+            return res.status(400).send({
                 message: 'Phiên làm bài đã hết hạn và đã được tự động nộp',
                 result
             });
@@ -358,8 +412,8 @@ export const getSessionQuestionsForStudent = async (req, res) => {
         });
 
         if (!session) {
-            return res.status(404).send({ 
-                message: 'Exam session not found or you do not have permission' 
+            return res.status(404).send({
+                message: 'Exam session not found or you do not have permission'
             });
         }
 
@@ -409,18 +463,45 @@ export const getSessionQuestionsForStudent = async (req, res) => {
             order: [['order', 'ASC']]
         });
 
-        const sanitizedQuestions = questions.map(question => ({
-            id: question.id,
-            question_text: question.question_text,
-            type: question.type,
-            difficulty: question.difficulty,
-            order: question.order,
-            image_url: question.image_url,
-            answers: question.answers.map(answer => ({
-                id: answer.id,
-                text: answer.text
-            }))
-        }));
+        // Hàm shuffle với seed để đảo ngẫu nhiên nhưng nhất quán
+        const seededShuffle = (array, seed) => {
+            const shuffled = [...array];
+            // Sử dụng seed để tạo random generator nhất quán
+            let random = seed;
+            const next = () => {
+                random = (random * 9301 + 49297) % 233280;
+                return random / 233280;
+            };
+
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(next() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        };
+
+        // Đảo thứ tự câu hỏi dựa trên session_id
+        const shuffledQuestions = seededShuffle(questions, session_id);
+
+        // Đảo thứ tự đáp án trong mỗi câu hỏi
+        const sanitizedQuestions = shuffledQuestions.map((question, questionIndex) => {
+            // Đảo đáp án với seed là session_id + question_id để mỗi câu hỏi có thứ tự đáp án khác nhau
+            const answerSeed = session_id * 1000 + question.id;
+            const shuffledAnswers = seededShuffle(question.answers, answerSeed);
+
+            return {
+                id: question.id,
+                question_text: question.question_text,
+                type: question.type,
+                difficulty: question.difficulty,
+                order: question.order,
+                image_url: question.image_url,
+                answers: shuffledAnswers.map(answer => ({
+                    id: answer.id,
+                    text: answer.text
+                }))
+            };
+        });
 
         return res.status(200).send({
             session: {

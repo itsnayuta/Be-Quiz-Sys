@@ -9,19 +9,13 @@ const ExamPurchaseModel = sequelize.define('ExamPurchase', {
     },
     user_id: {
         type: DataTypes.INTEGER,
-        allowNull: false,
-        references: {
-            model: 'User',
-            key: 'id'
-        }
+        allowNull: false
+
     },
     exam_id: {
         type: DataTypes.INTEGER,
-        allowNull: false,
-        references: {
-            model: 'Exams',
-            key: 'id'
-        }
+        allowNull: false
+
     },
     purchase_price: {
         type: DataTypes.DECIMAL(10, 2),
@@ -38,6 +32,7 @@ const ExamPurchaseModel = sequelize.define('ExamPurchase', {
     indexes: [
         // Removed unique constraint to allow multiple purchases (pay-per-attempt)
         {
+            unique: false,
             fields: ['user_id', 'exam_id']
         }
     ]

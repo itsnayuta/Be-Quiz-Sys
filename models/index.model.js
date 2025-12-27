@@ -308,41 +308,23 @@ UserModel.hasMany(RecentLoginModel, {
 RecentLoginModel.belongsTo(UserModel, {
   foreignKey: 'user_id'
 })
-
-// User N-N Exams through ExamPurchase (Purchased exams)
-UserModel.belongsToMany(ExamModel, {
-  through: ExamPurchaseModel,
+UserModel.hasMany(ExamPurchaseModel, {
   foreignKey: 'user_id',
-  otherKey: 'exam_id',
-  as: 'purchasedExams'
+  as: 'purchases'
 });
-
-ExamModel.belongsToMany(UserModel, {
-  through: ExamPurchaseModel,
-  foreignKey: 'exam_id',
-  otherKey: 'user_id',
-  as: 'purchasedBy'
-});
-
-// Direct associations for easier querying
 ExamPurchaseModel.belongsTo(UserModel, {
   foreignKey: 'user_id',
   as: 'user'
 });
 
-ExamPurchaseModel.belongsTo(ExamModel, {
-  foreignKey: 'exam_id',
-  as: 'exam'
-});
-
+// Exam có nhiều bản ghi mua hàng
 ExamModel.hasMany(ExamPurchaseModel, {
   foreignKey: 'exam_id',
   as: 'purchases'
 });
-
-UserModel.hasMany(ExamPurchaseModel, {
-  foreignKey: 'user_id',
-  as: 'purchases'
+ExamPurchaseModel.belongsTo(ExamModel, {
+  foreignKey: 'exam_id',
+  as: 'exam'
 });
 
 // Exam_sessions 1-N Exam_cheating_logs

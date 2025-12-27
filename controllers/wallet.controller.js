@@ -29,6 +29,22 @@ const generateUniqueDepositCode = async () => {
     return `${generateDepositCode()}-${Math.floor(Math.random() * 1000)}`;
 };
 
+// Tạo mã withdraw_code unique (check DB, tránh trùng)
+const generateUniqueWithdrawCode = async () => {
+    let code;
+    for (let i = 0; i < 5; i++) {
+        code = generateDepositCode(); // Dùng cùng hàm generate
+        const existing = await WithdrawHistoryModel.findOne({
+            where: { withdraw_code: code },
+            attributes: ["id"]
+        });
+        if (!existing) {
+            return code;
+        }
+    }
+    return `${generateDepositCode()}-${Math.floor(Math.random() * 1000)}`;
+};
+
 // Tạo yêu cầu nạp tiền: lưu pending và trả về QR base64
 export const createDepositRequest = async (req, res) => {
     const { bankName, bankAccountName, bankAccountNumber, amount } = req.body;
@@ -596,6 +612,304 @@ export const adminAddBalance = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: "Lỗi server khi cộng tiền",
+            error: error.message
+        });
+    }
+};
+
+// Tạo yêu cầu rút tiền (teacher)
+export const createWithdrawRequest = async (req, res) => {
+    let transaction = null;
+    try {
+        const { bankName, bankAccountName, bankAccountNumber, amount } = req.body;
+        const userId = req.userId;
+
+        if (!bankName || !bankAccountName || !bankAccountNumber || !amount) {
+            return res.status(400).json({
+                success: false,
+                message: "Thiếu bankName, bankAccountName, bankAccountNumber hoặc amount"
+            });
+        }
+
+        const withdrawAmount = parseFloat(amount);
+        if (Number.isNaN(withdrawAmount) || withdrawAmount <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Giá trị amount không hợp lệ"
+            });
+        }
+
+        // Kiểm tra số dư tối thiểu (ví dụ: tối thiểu 50,000 VNĐ)
+        const minWithdrawAmount = 50000;
+        if (withdrawAmount < minWithdrawAmount) {
+            return res.status(400).json({
+                success: false,
+                message: `Số tiền rút tối thiểu là ${minWithdrawAmount.toLocaleString('vi-VN')} VNĐ`
+            });
+        }
+
+        transaction = await sequelize.transaction();
+
+        // Lấy thông tin user và lock row
+        const user = await UserModel.findByPk(userId, {
+            transaction,
+            lock: transaction.LOCK.UPDATE
+        });
+
+        if (!user) {
+            await transaction.rollback();
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy người dùng"
+            });
+        }
+
+        const userBalance = parseFloat(user.balance || 0);
+
+        // Kiểm tra số dư
+        if (userBalance < withdrawAmount) {
+            await transaction.rollback();
+            return res.status(400).json({
+                success: false,
+                message: "Số dư không đủ để thực hiện rút tiền",
+                current_balance: userBalance
+            });
+        }
+
+        // Tạo mã rút tiền unique
+        const withdrawCode = await generateUniqueWithdrawCode();
+
+        // Trừ tiền ngay khi tạo yêu cầu (lock amount)
+        const newBalance = userBalance - withdrawAmount;
+        await user.update({
+            balance: newBalance
+        }, { transaction });
+
+        // Tạo bản ghi rút tiền với status pending
+        const withdraw = await WithdrawHistoryModel.create({
+            user_id: userId,
+            bankName,
+            bankAccountName,
+            bankAccountNumber,
+            amount: withdrawAmount,
+            withdraw_code: withdrawCode,
+            status: 'pending'
+        }, { transaction });
+
+        // Tạo transaction history (pending withdrawal)
+        await TransactionHistoryModel.create({
+            user_id: userId,
+            transactionType: 'withdraw',
+            referenceId: withdraw.id,
+            amount: withdrawAmount,
+            transferType: 'out',
+            beforeBalance: userBalance,
+            afterBalance: newBalance,
+            transactionStatus: 'pending',
+            description: `Yêu cầu rút tiền: ${withdrawAmount.toLocaleString('vi-VN')} VNĐ - Mã: ${withdrawCode}`
+        }, { transaction });
+
+        await transaction.commit();
+        transaction = null;
+
+        return res.status(200).json({
+            success: true,
+            message: "Tạo yêu cầu rút tiền thành công",
+            data: {
+                withdraw_id: withdraw.id,
+                withdraw_code: withdrawCode,
+                bankName: withdraw.bankName,
+                bankAccountName: withdraw.bankAccountName,
+                bankAccountNumber: withdraw.bankAccountNumber,
+                amount: withdrawAmount,
+                status: withdraw.status,
+                before_balance: userBalance,
+                after_balance: newBalance
+            }
+        });
+
+    } catch (error) {
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error("Lỗi rollback transaction:", rollbackError);
+            }
+        }
+
+        console.error("Lỗi khi tạo yêu cầu rút tiền:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi server khi tạo yêu cầu rút tiền",
+            error: error.message
+        });
+    }
+};
+
+// Duyệt yêu cầu rút tiền (admin)
+export const approveWithdrawRequest = async (req, res) => {
+    let transaction = null;
+    try {
+        const { withdraw_id, action, note } = req.body; // action: 'approve' hoặc 'reject'
+
+        if (!withdraw_id || !action) {
+            return res.status(400).json({
+                success: false,
+                message: "Thiếu withdraw_id hoặc action (approve/reject)"
+            });
+        }
+
+        if (action !== 'approve' && action !== 'reject') {
+            return res.status(400).json({
+                success: false,
+                message: "Action phải là 'approve' hoặc 'reject'"
+            });
+        }
+
+        transaction = await sequelize.transaction();
+
+        // Lấy thông tin yêu cầu rút tiền và lock row
+        const withdraw = await WithdrawHistoryModel.findByPk(withdraw_id, {
+            transaction,
+            lock: transaction.LOCK.UPDATE
+        });
+
+        if (!withdraw) {
+            await transaction.rollback();
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy yêu cầu rút tiền"
+            });
+        }
+
+        // Kiểm tra trạng thái hiện tại
+        if (withdraw.status !== 'pending') {
+            await transaction.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Yêu cầu rút tiền đã được xử lý (status: ${withdraw.status})`
+            });
+        }
+
+        const user = await UserModel.findByPk(withdraw.user_id, {
+            transaction,
+            lock: transaction.LOCK.UPDATE
+        });
+
+        if (!user) {
+            await transaction.rollback();
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy người dùng"
+            });
+        }
+
+        const withdrawAmount = parseFloat(withdraw.amount);
+        const currentBalance = parseFloat(user.balance || 0);
+
+        if (action === 'approve') {
+            // Duyệt: Cập nhật status thành success
+            await withdraw.update({
+                status: 'success'
+            }, { transaction });
+
+            // Cập nhật transaction history từ pending -> success
+            await TransactionHistoryModel.update({
+                transactionStatus: 'success',
+                description: note || `Rút tiền thành công: ${withdrawAmount.toLocaleString('vi-VN')} VNĐ - Mã: ${withdraw.withdraw_code}`
+            }, {
+                where: {
+                    referenceId: withdraw.id,
+                    transactionType: 'withdrawal'
+                },
+                transaction
+            });
+
+            await transaction.commit();
+            transaction = null;
+
+            return res.status(200).json({
+                success: true,
+                message: "Duyệt yêu cầu rút tiền thành công",
+                data: {
+                    withdraw_id: withdraw.id,
+                    withdraw_code: withdraw.withdraw_code,
+                    amount: withdrawAmount,
+                    status: 'success',
+                    bankName: withdraw.bankName,
+                    bankAccountName: withdraw.bankAccountName,
+                    bankAccountNumber: withdraw.bankAccountNumber
+                }
+            });
+
+        } else {
+            // Từ chối: Hoàn tiền lại cho user
+            const refundBalance = currentBalance + withdrawAmount;
+
+            await user.update({
+                balance: refundBalance
+            }, { transaction });
+
+            await withdraw.update({
+                status: 'failed'
+            }, { transaction });
+
+            // Cập nhật transaction history từ pending -> failed và tạo transaction refund
+            await TransactionHistoryModel.update({
+                transactionStatus: 'failed',
+                description: note || `Yêu cầu rút tiền bị từ chối: ${withdrawAmount.toLocaleString('vi-VN')} VNĐ - Mã: ${withdraw.withdraw_code}`
+            }, {
+                where: {
+                    referenceId: withdraw.id,
+                    transactionType: 'withdrawal'
+                },
+                transaction
+            });
+
+            // Tạo transaction history cho việc hoàn tiền
+            await TransactionHistoryModel.create({
+                user_id: withdraw.user_id,
+                transactionType: 'adjustment',
+                referenceId: withdraw.id,
+                amount: withdrawAmount,
+                transferType: 'in',
+                beforeBalance: currentBalance,
+                afterBalance: refundBalance,
+                transactionStatus: 'success',
+                description: `Hoàn tiền do yêu cầu rút tiền bị từ chối: ${withdrawAmount.toLocaleString('vi-VN')} VNĐ - Mã: ${withdraw.withdraw_code}`
+            }, { transaction });
+
+            await transaction.commit();
+            transaction = null;
+
+            return res.status(200).json({
+                success: true,
+                message: "Từ chối yêu cầu rút tiền và đã hoàn tiền lại cho người dùng",
+                data: {
+                    withdraw_id: withdraw.id,
+                    withdraw_code: withdraw.withdraw_code,
+                    amount: withdrawAmount,
+                    status: 'failed',
+                    refunded_amount: withdrawAmount,
+                    before_balance: currentBalance,
+                    after_balance: refundBalance
+                }
+            });
+        }
+
+    } catch (error) {
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error("Lỗi rollback transaction:", rollbackError);
+            }
+        }
+
+        console.error("Lỗi khi duyệt yêu cầu rút tiền:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi server khi duyệt yêu cầu rút tiền",
             error: error.message
         });
     }

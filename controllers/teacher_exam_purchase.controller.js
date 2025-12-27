@@ -99,6 +99,7 @@ export const getTeacherExamRevenue = async (req, res) => {
             attributes: ['id', 'title', 'fee']
         });
         const examIds = teacherExams.map(e => e.id);
+        const totalPaidExams = teacherExams.length;
 
         if (examIds.length === 0) {
             return res.status(200).json({
@@ -106,6 +107,7 @@ export const getTeacherExamRevenue = async (req, res) => {
                 data: {
                     totalRevenue: 0,
                     totalPurchases: 0,
+                    totalPaidExams: 0,
                     revenueByExam: [],
                     recentPurchases: []
                 }
@@ -189,6 +191,7 @@ export const getTeacherExamRevenue = async (req, res) => {
             data: {
                 totalRevenue: parseFloat(totalRevenue),
                 totalPurchases,
+                totalPaidExams: totalPaidExams,
                 revenueByExam: revenueByExam,
                 recentPurchases
             }

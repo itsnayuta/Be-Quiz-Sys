@@ -1,11 +1,13 @@
-import { verifyToken, verifyAdmin } from "../middleware/authJWT.js";
+import { verifyToken, verifyAdmin, verifyTeacher } from "../middleware/authJWT.js";
 import {
     createDepositRequest,
     sepayWebhook,
     getDepositHistory,
     getWithdrawHistory,
     getTransactionHistory,
-    adminAddBalance
+    adminAddBalance,
+    createWithdrawRequest,
+    approveWithdrawRequest
 } from "../controllers/wallet.controller.js";
 
 export default function (app) {
@@ -17,34 +19,34 @@ export default function (app) {
         next();
     });
 
-    // Người dùng yêu cầu nạp tiền -> tạo deposit pending + trả QR base64
+    // deposit pending +  base64
     app.post(
         "/api/wallet/deposit",
         [verifyToken],
         createDepositRequest
     );
 
-    // Webhook từ SePay (không dùng verifyToken)
+    // Webhook SePay 
     app.post(
         "/api/wallet/deposit/webhook",
         sepayWebhook
     );
 
-    // Lấy danh sách deposit_history
+    // eposit_history
     app.get(
         "/api/wallet/deposit-history",
         [verifyToken],
         getDepositHistory
     );
 
-    // Lấy danh sách withdrawn_history
+    // withdrawn_history
     app.get(
         "/api/wallet/withdraw-history",
         [verifyToken],
         getWithdrawHistory
     );
 
-    // Lấy danh sách transactions_history
+    // transactions_history
     app.get(
         "/api/wallet/transaction-history",
         [verifyToken],
@@ -56,6 +58,20 @@ export default function (app) {
         "/api/wallet/admin/add-balance",
         [verifyToken, verifyAdmin],
         adminAddBalance
+    );
+
+    // Teacher tạo yêu cầu rút tiền
+    app.post(
+        "/api/wallet/withdraw",
+        [verifyToken, verifyTeacher],
+        createWithdrawRequest
+    );
+
+    // Admin duyệt/từ chối yêu cầu rút tiền
+    app.post(
+        "/api/wallet/admin/approve-withdraw",
+        [verifyToken, verifyAdmin],
+        approveWithdrawRequest
     );
 }
 
