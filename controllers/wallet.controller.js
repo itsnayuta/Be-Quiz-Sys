@@ -2,6 +2,8 @@ import axios from "axios";
 import sequelize from "../config/db.config.js";
 import { Op } from "sequelize";
 import { DepositHistoryModel, TransactionHistoryModel, UserModel, WithdrawHistoryModel } from "../models/index.model.js";
+import redisClient from "../config/redis.config.js";
+import { sendOTPEmail } from "../utils/mailSender.js";
 
 const generateDepositCode = () => {
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -617,9 +619,9 @@ export const adminAddBalance = async (req, res) => {
     }
 };
 
-// Tạo yêu cầu rút tiền (teacher)
-export const createWithdrawRequest = async (req, res) => {
-    let transaction = null;
+
+// Rút tiền với OTP - Gửi OTP
+export const sendOTPForWithdraw = async (req, res) => {
     try {
         const { bankName, bankAccountName, bankAccountNumber, amount } = req.body;
         const userId = req.userId;
@@ -627,7 +629,7 @@ export const createWithdrawRequest = async (req, res) => {
         if (!bankName || !bankAccountName || !bankAccountNumber || !amount) {
             return res.status(400).json({
                 success: false,
-                message: "Thiếu bankName, bankAccountName, bankAccountNumber hoặc amount"
+                message: "Thiếu thông tin: bankName, bankAccountName, bankAccountNumber hoặc amount"
             });
         }
 
@@ -635,11 +637,11 @@ export const createWithdrawRequest = async (req, res) => {
         if (Number.isNaN(withdrawAmount) || withdrawAmount <= 0) {
             return res.status(400).json({
                 success: false,
-                message: "Giá trị amount không hợp lệ"
+                message: "Số tiền không hợp lệ"
             });
         }
 
-        // Kiểm tra số dư tối thiểu (ví dụ: tối thiểu 50,000 VNĐ)
+        // Kiểm tra số dư tối thiểu
         const minWithdrawAmount = 50000;
         if (withdrawAmount < minWithdrawAmount) {
             return res.status(400).json({
@@ -648,6 +650,101 @@ export const createWithdrawRequest = async (req, res) => {
             });
         }
 
+        // Kiểm tra user và số dư
+        const user = await UserModel.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy người dùng"
+            });
+        }
+
+        const userBalance = parseFloat(user.balance || 0);
+        if (userBalance < withdrawAmount) {
+            return res.status(400).json({
+                success: false,
+                message: "Số dư không đủ để thực hiện rút tiền",
+                current_balance: userBalance
+            });
+        }
+
+        // Tạo OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const withdrawData = JSON.stringify({
+            userId,
+            bankName,
+            bankAccountName,
+            bankAccountNumber,
+            amount: withdrawAmount,
+            otp,
+            type: 'withdraw'
+        });
+
+        // Lưu OTP vào Redis với thời gian hết hạn 10 phút
+        await redisClient.set(`otp:withdraw:${userId}`, withdrawData, { EX: 600 });
+
+        // Gửi email OTP
+        await sendOTPEmail(user.email, otp);
+
+        return res.status(200).json({
+            success: true,
+            message: "Mã OTP đã được gửi đến email của bạn. Vui lòng xác thực để hoàn tất rút tiền."
+        });
+
+    } catch (error) {
+        console.error("Error sending OTP for withdraw:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi khi gửi mã OTP",
+            error: error.message
+        });
+    }
+};
+
+// Xác thực OTP và thực hiện rút tiền
+export const verifyOTPAndWithdraw = async (req, res) => {
+    let transaction = null;
+    try {
+        const { otp } = req.body;
+        const userId = req.userId;
+
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP là bắt buộc"
+            });
+        }
+
+        // Lấy dữ liệu từ Redis
+        const rawData = await redisClient.get(`otp:withdraw:${userId}`);
+        if (!rawData) {
+            return res.status(400).json({
+                success: false,
+                message: "Mã OTP đã hết hạn hoặc không tồn tại"
+            });
+        }
+
+        const storedData = JSON.parse(rawData);
+
+        // Kiểm tra OTP
+        if (storedData.otp !== otp) {
+            return res.status(400).json({
+                success: false,
+                message: "Mã OTP không chính xác"
+            });
+        }
+
+        // Kiểm tra userId có khớp không
+        if (storedData.userId !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: "Không có quyền thực hiện giao dịch này"
+            });
+        }
+
+        const withdrawAmount = parseFloat(storedData.amount);
+
+        // Bắt đầu transaction
         transaction = await sequelize.transaction();
 
         // Lấy thông tin user và lock row
@@ -664,11 +761,11 @@ export const createWithdrawRequest = async (req, res) => {
             });
         }
 
+        // Kiểm tra lại số dư (có thể đã thay đổi)
         const userBalance = parseFloat(user.balance || 0);
-
-        // Kiểm tra số dư
         if (userBalance < withdrawAmount) {
             await transaction.rollback();
+            await redisClient.del(`otp:withdraw:${userId}`);
             return res.status(400).json({
                 success: false,
                 message: "Số dư không đủ để thực hiện rút tiền",
@@ -677,26 +774,51 @@ export const createWithdrawRequest = async (req, res) => {
         }
 
         // Tạo mã rút tiền unique
-        const withdrawCode = await generateUniqueWithdrawCode();
+        const generateWithdrawCode = () => {
+            const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            let code = "";
+            for (let i = 0; i < 12; i++) {
+                code += alphabet[Math.floor(Math.random() * alphabet.length)];
+            }
+            return code;
+        };
 
-        // Trừ tiền ngay khi tạo yêu cầu (lock amount)
+        let withdrawCode;
+        let isUnique = false;
+        for (let i = 0; i < 5; i++) {
+            withdrawCode = generateWithdrawCode();
+            const existing = await WithdrawHistoryModel.findOne({
+                where: { withdraw_code: withdrawCode },
+                attributes: ["id"],
+                transaction
+            });
+            if (!existing) {
+                isUnique = true;
+                break;
+            }
+        }
+        if (!isUnique) {
+            withdrawCode = `${generateWithdrawCode()}-${Math.floor(Math.random() * 1000)}`;
+        }
+
+        // Trừ tiền
         const newBalance = userBalance - withdrawAmount;
         await user.update({
             balance: newBalance
         }, { transaction });
 
-        // Tạo bản ghi rút tiền với status pending
+        // Tạo bản ghi rút tiền
         const withdraw = await WithdrawHistoryModel.create({
             user_id: userId,
-            bankName,
-            bankAccountName,
-            bankAccountNumber,
+            bankName: storedData.bankName,
+            bankAccountName: storedData.bankAccountName,
+            bankAccountNumber: storedData.bankAccountNumber,
             amount: withdrawAmount,
             withdraw_code: withdrawCode,
             status: 'pending'
         }, { transaction });
 
-        // Tạo transaction history (pending withdrawal)
+        // Tạo transaction history
         await TransactionHistoryModel.create({
             user_id: userId,
             transactionType: 'withdraw',
@@ -712,9 +834,12 @@ export const createWithdrawRequest = async (req, res) => {
         await transaction.commit();
         transaction = null;
 
+        // Xóa OTP khỏi Redis
+        await redisClient.del(`otp:withdraw:${userId}`);
+
         return res.status(200).json({
             success: true,
-            message: "Tạo yêu cầu rút tiền thành công",
+            message: "Rút tiền thành công. Yêu cầu của bạn đang chờ admin duyệt.",
             data: {
                 withdraw_id: withdraw.id,
                 withdraw_code: withdrawCode,
@@ -737,14 +862,16 @@ export const createWithdrawRequest = async (req, res) => {
             }
         }
 
-        console.error("Lỗi khi tạo yêu cầu rút tiền:", error);
+        console.error("Error verifying OTP and withdrawing:", error);
         return res.status(500).json({
             success: false,
-            message: "Lỗi server khi tạo yêu cầu rút tiền",
+            message: "Lỗi khi thực hiện rút tiền",
             error: error.message
         });
     }
 };
+
+
 
 // Duyệt yêu cầu rút tiền (admin)
 export const approveWithdrawRequest = async (req, res) => {
@@ -914,3 +1041,4 @@ export const approveWithdrawRequest = async (req, res) => {
         });
     }
 };
+

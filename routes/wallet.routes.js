@@ -6,7 +6,8 @@ import {
     getWithdrawHistory,
     getTransactionHistory,
     adminAddBalance,
-    createWithdrawRequest,
+    sendOTPForWithdraw,
+    verifyOTPAndWithdraw,
     approveWithdrawRequest
 } from "../controllers/wallet.controller.js";
 
@@ -60,11 +61,18 @@ export default function (app) {
         adminAddBalance
     );
 
-    // Teacher tạo yêu cầu rút tiền
+    // Teacher rút tiền - Gửi OTP
     app.post(
-        "/api/wallet/withdraw",
+        "/api/wallet/withdraw/send-otp",
         [verifyToken, verifyTeacher],
-        createWithdrawRequest
+        sendOTPForWithdraw
+    );
+
+    // Teacher rút tiền - Xác thực OTP và thực hiện rút tiền
+    app.post(
+        "/api/wallet/withdraw/verify-otp",
+        [verifyToken, verifyTeacher],
+        verifyOTPAndWithdraw
     );
 
     // Admin duyệt/từ chối yêu cầu rút tiền
