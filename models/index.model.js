@@ -411,6 +411,16 @@ WithdrawHistoryModel.belongsTo(UserModel, {
   as: 'user'
 });
 
+UserModel.hasMany(WithdrawHistoryModel, {
+  foreignKey: 'processed_by',
+  as: 'processedWithdrawals'
+});
+
+WithdrawHistoryModel.belongsTo(UserModel, {
+  foreignKey: 'processed_by',
+  as: 'processedBy'
+});
+
 // User 1-N Transactions_history
 UserModel.hasMany(TransactionHistoryModel, {
   foreignKey: 'user_id',

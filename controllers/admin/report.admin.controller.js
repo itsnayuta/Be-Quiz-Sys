@@ -1,109 +1,177 @@
-import { UserModel, ExamModel, ExamPurchaseModel, ExamResultModel } from "../../models/index.model.js";
+import { UserModel, ExamModel, ExamPurchaseModel, ExamResultModel, DepositHistoryModel, WithdrawHistoryModel } from "../../models/index.model.js";
 import { Op } from "sequelize";
 import sequelize from "../../config/db.config.js";
 
 // ==================== REPORTS & ANALYTICS ====================
 
+// Helper function to calculate period statistics
+const calculatePeriodStats = async (daysAgo, periodName) => {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysAgo);
+    
+    const prevEndDate = new Date(startDate);
+    const prevStartDate = new Date(prevEndDate);
+    prevStartDate.setDate(prevStartDate.getDate() - daysAgo);
+    
+    // Current period
+    const currentDeposit = await DepositHistoryModel.sum('deposit_amount', {
+        where: {
+            deposit_status: 'success',
+            created_at: { [Op.between]: [startDate, endDate] }
+        }
+    }) || 0;
+    
+    const currentWithdrawal = await WithdrawHistoryModel.sum('amount', {
+        where: {
+            status: 'approved',
+            created_at: { [Op.between]: [startDate, endDate] }
+        }
+    }) || 0;
+    
+    const currentPurchase = await ExamPurchaseModel.sum('purchase_price', {
+        where: {
+            purchase_date: { [Op.between]: [startDate, endDate] }
+        }
+    }) || 0;
+    
+    // Previous period
+    const prevDeposit = await DepositHistoryModel.sum('deposit_amount', {
+        where: {
+            deposit_status: 'success',
+            created_at: { [Op.between]: [prevStartDate, prevEndDate] }
+        }
+    }) || 0;
+    
+    const prevWithdrawal = await WithdrawHistoryModel.sum('amount', {
+        where: {
+            status: 'approved',
+            created_at: { [Op.between]: [prevStartDate, prevEndDate] }
+        }
+    }) || 0;
+    
+    const prevPurchase = await ExamPurchaseModel.sum('purchase_price', {
+        where: {
+            purchase_date: { [Op.between]: [prevStartDate, prevEndDate] }
+        }
+    }) || 0;
+    
+    // Calculate revenue (deposits - withdrawals)
+    const currentRevenue = currentDeposit - currentWithdrawal;
+    const prevRevenue = prevDeposit - prevWithdrawal;
+    
+    // Calculate percent change
+    const calcPercentChange = (current, previous) => {
+        if (previous === 0) return current > 0 ? 100 : 0;
+        return parseFloat((((current - previous) / previous) * 100).toFixed(1));
+    };
+    
+    return {
+        current: {
+            deposit: parseFloat(currentDeposit.toFixed(2)),
+            withdrawal: parseFloat(currentWithdrawal.toFixed(2)),
+            purchase: parseFloat(currentPurchase.toFixed(2)),
+            revenue: parseFloat(currentRevenue.toFixed(2))
+        },
+        previous: {
+            deposit: parseFloat(prevDeposit.toFixed(2)),
+            withdrawal: parseFloat(prevWithdrawal.toFixed(2)),
+            purchase: parseFloat(prevPurchase.toFixed(2)),
+            revenue: parseFloat(prevRevenue.toFixed(2))
+        },
+        percentChange: {
+            deposit: calcPercentChange(currentDeposit, prevDeposit),
+            withdrawal: calcPercentChange(currentWithdrawal, prevWithdrawal),
+            purchase: calcPercentChange(currentPurchase, prevPurchase),
+            revenue: calcPercentChange(currentRevenue, prevRevenue)
+        }
+    };
+};
+
 export const getRevenueReport = async (req, res) => {
     try {
-        const { date_from, date_to, group_by = 'day', teacher_id } = req.query;
+        const { year = new Date().getFullYear(), group_by = 'month' } = req.query;
         
-        const whereClause = {};
+        // Calculate summary for different periods
+        const todayStats = await calculatePeriodStats(1, 'today');
+        const sevenDaysStats = await calculatePeriodStats(7, '7days');
+        const thirtyDaysStats = await calculatePeriodStats(30, '30days');
         
-        if (date_from || date_to) {
-            whereClause.purchase_date = {};
-            if (date_from) whereClause.purchase_date[Op.gte] = new Date(date_from);
-            if (date_to) whereClause.purchase_date[Op.lte] = new Date(date_to);
+        // Monthly data for the year
+        const monthlyData = [];
+        for (let month = 1; month <= 12; month++) {
+            const startDate = new Date(year, month - 1, 1);
+            const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+            
+            const monthDeposit = await DepositHistoryModel.sum('deposit_amount', {
+                where: {
+                    deposit_status: 'success',
+                    created_at: { [Op.between]: [startDate, endDate] }
+                }
+            }) || 0;
+            
+            const monthWithdrawal = await WithdrawHistoryModel.sum('amount', {
+                where: {
+                    status: 'approved',
+                    created_at: { [Op.between]: [startDate, endDate] }
+                }
+            }) || 0;
+            
+            monthlyData.push({
+                month: `${year}-${String(month).padStart(2, '0')}`,
+                revenue: parseFloat((monthDeposit - monthWithdrawal).toFixed(2)),
+                deposit: parseFloat(monthDeposit.toFixed(2)),
+                withdrawal: parseFloat(monthWithdrawal.toFixed(2))
+            });
         }
         
-        // Total revenue
-        const totalRevenue = await ExamPurchaseModel.sum('purchase_price', { where: whereClause }) || 0;
-        const totalPurchases = await ExamPurchaseModel.count({ where: whereClause });
-        
-        // Revenue by period
-        let dateFormat;
-        switch (group_by) {
-            case 'month':
-                dateFormat = '%Y-%m';
-                break;
-            case 'week':
-                dateFormat = '%Y-%u';
-                break;
-            default: // day
-                dateFormat = '%Y-%m-%d';
+        // Daily data for last 30 days
+        const dailyData = [];
+        for (let i = 29; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+            const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+            
+            const dayDeposit = await DepositHistoryModel.sum('deposit_amount', {
+                where: {
+                    deposit_status: 'success',
+                    created_at: { [Op.between]: [startOfDay, endOfDay] }
+                }
+            }) || 0;
+            
+            const dayWithdrawal = await WithdrawHistoryModel.sum('amount', {
+                where: {
+                    status: 'approved',
+                    created_at: { [Op.between]: [startOfDay, endOfDay] }
+                }
+            }) || 0;
+            
+            const dayPurchase = await ExamPurchaseModel.sum('purchase_price', {
+                where: {
+                    purchase_date: { [Op.between]: [startOfDay, endOfDay] }
+                }
+            }) || 0;
+            
+            const dateStr = startOfDay.toISOString().split('T')[0];
+            dailyData.push({
+                date: dateStr,
+                deposit: parseFloat(dayDeposit.toFixed(2)),
+                withdrawal: parseFloat(dayWithdrawal.toFixed(2)),
+                purchase: parseFloat(dayPurchase.toFixed(2))
+            });
         }
-        
-        const revenueByPeriod = await ExamPurchaseModel.findAll({
-            where: whereClause,
-            attributes: [
-                [sequelize.fn('DATE_FORMAT', sequelize.col('purchase_date'), dateFormat), 'period'],
-                [sequelize.fn('SUM', sequelize.col('purchase_price')), 'revenue'],
-                [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-            ],
-            group: [sequelize.fn('DATE_FORMAT', sequelize.col('purchase_date'), dateFormat)],
-            order: [[sequelize.fn('DATE_FORMAT', sequelize.col('purchase_date'), dateFormat), 'ASC']],
-            raw: true
-        });
-        
-        // Top earning exams
-        const topEarningExams = await ExamPurchaseModel.findAll({
-            where: whereClause,
-            include: [
-                {
-                    model: ExamModel,
-                    as: 'exam',
-                    attributes: ['id', 'title', 'fee'],
-                    include: [{
-                        model: UserModel,
-                        as: 'creator',
-                        attributes: ['id', 'fullName'],
-                        where: teacher_id ? { id: teacher_id } : {}
-                    }]
-                }
-            ],
-            attributes: [
-                'exam_id',
-                [sequelize.fn('COUNT', sequelize.col('exam_id')), 'purchase_count'],
-                [sequelize.fn('SUM', sequelize.col('purchase_price')), 'total_revenue']
-            ],
-            group: ['exam_id', 'exam.id', 'exam->creator.id'],
-            order: [[sequelize.fn('SUM', sequelize.col('purchase_price')), 'DESC']],
-            limit: 10,
-            subQuery: false
-        });
-        
-        // Top spending students
-        const topSpendingStudents = await ExamPurchaseModel.findAll({
-            where: whereClause,
-            include: [
-                {
-                    model: UserModel,
-                    as: 'user',
-                    attributes: ['id', 'fullName', 'email']
-                }
-            ],
-            attributes: [
-                'user_id',
-                [sequelize.fn('COUNT', sequelize.col('user_id')), 'purchase_count'],
-                [sequelize.fn('SUM', sequelize.col('purchase_price')), 'total_spent']
-            ],
-            group: ['user_id', 'user.id'],
-            order: [[sequelize.fn('SUM', sequelize.col('purchase_price')), 'DESC']],
-            limit: 10,
-            subQuery: false
-        });
         
         return res.status(200).json({
             success: true,
             data: {
                 summary: {
-                    totalRevenue: parseFloat(totalRevenue).toFixed(2),
-                    totalPurchases,
-                    avgPurchaseValue: totalPurchases > 0 ? (parseFloat(totalRevenue) / totalPurchases).toFixed(2) : 0
+                    today: todayStats,
+                    "7days": sevenDaysStats,
+                    "30days": thirtyDaysStats
                 },
-                revenueByPeriod,
-                topEarningExams,
-                topSpendingStudents
+                monthly: monthlyData,
+                daily: dailyData
             }
         });
         

@@ -1,4 +1,4 @@
-import { ExamPurchaseModel, ExamModel, UserModel } from "../../models/index.model.js";
+import { ExamPurchaseModel, ExamModel, UserModel, DepositHistoryModel, WithdrawHistoryModel } from "../../models/index.model.js";
 import { Op } from "sequelize";
 import sequelize from "../../config/db.config.js";
 
@@ -218,64 +218,125 @@ export const getTransactionHistory = async (req, res) => {
         const {
             page = 1,
             limit = 10,
-            user_id,
-            type = 'purchase', // purchase, refund, adjustment
-            date_from,
-            date_to
+            search = '',
+            type = 'all', // all, deposit, withdraw
+            dateFrom,
+            dateTo
         } = req.query;
         
         const offset = (page - 1) * limit;
         
-        // For now, we only have purchases. In future, you should create a Transaction table
-        const whereClause = {};
-        
-        if (user_id) whereClause.user_id = user_id;
-        
-        if (date_from || date_to) {
-            whereClause.purchase_date = {};
-            if (date_from) whereClause.purchase_date[Op.gte] = new Date(date_from);
-            if (date_to) whereClause.purchase_date[Op.lte] = new Date(date_to);
+        // Build date range filter
+        const dateFilter = {};
+        if (dateFrom || dateTo) {
+            if (dateFrom) dateFilter[Op.gte] = new Date(dateFrom);
+            if (dateTo) {
+                const endDate = new Date(dateTo);
+                endDate.setHours(23, 59, 59, 999);
+                dateFilter[Op.lte] = endDate;
+            }
         }
         
-        const { count, rows } = await ExamPurchaseModel.findAndCountAll({
-            where: whereClause,
-            include: [
-                {
+        // Build search filter for user
+        const userSearchFilter = search ? {
+            [Op.or]: [
+                { fullName: { [Op.like]: `%${search}%` } },
+                { email: { [Op.like]: `%${search}%` } }
+            ]
+        } : {};
+        
+        let allTransactions = [];
+        
+        // Fetch deposits
+        if (type === 'all' || type === 'deposit') {
+            const depositWhere = {};
+            if (Object.keys(dateFilter).length > 0) {
+                depositWhere.created_at = dateFilter;
+            }
+            
+            const deposits = await DepositHistoryModel.findAll({
+                where: depositWhere,
+                include: [{
                     model: UserModel,
                     as: 'user',
-                    attributes: ['id', 'fullName', 'email']
+                    attributes: ['id', 'fullName', 'email'],
+                    where: userSearchFilter,
+                    required: Object.keys(userSearchFilter).length > 0
+                }],
+                raw: true,
+                nest: true
+            });
+            
+            allTransactions = allTransactions.concat(deposits.map(d => ({
+                id: d.id,
+                user: {
+                    fullName: d.user.fullName,
+                    email: d.user.email,
+                    bankAccount: d.bankAccountNumber || 'N/A',
+                    bankAccountName: d.bankAccountName || 'N/A',
+                    bankName: d.bankName || 'N/A'
                 },
-                {
-                    model: ExamModel,
-                    as: 'exam',
-                    attributes: ['id', 'title']
-                }
-            ],
-            order: [['purchase_date', 'DESC']],
-            limit: parseInt(limit),
-            offset: parseInt(offset)
-        });
+                transactionType: 'deposit',
+                amount: parseFloat(d.deposit_amount),
+                transferType: 'in',
+                created_at: d.created_at,
+                referenceId: d.deposit_code
+            })));
+        }
         
-        // Transform to transaction format
-        const transactions = rows.map(purchase => ({
-            id: purchase.id,
-            type: 'purchase',
-            amount: parseFloat(purchase.purchase_price),
-            date: purchase.purchase_date,
-            user: purchase.user,
-            description: `Purchase: ${purchase.exam.title}`,
-            exam: purchase.exam
-        }));
+        // Fetch withdrawals
+        if (type === 'all' || type === 'withdraw') {
+            const withdrawWhere = { status: 'approved' }; // Only approved withdrawals
+            if (Object.keys(dateFilter).length > 0) {
+                withdrawWhere.created_at = dateFilter;
+            }
+            
+            const withdrawals = await WithdrawHistoryModel.findAll({
+                where: withdrawWhere,
+                include: [{
+                    model: UserModel,
+                    as: 'user',
+                    attributes: ['id', 'fullName', 'email'],
+                    where: userSearchFilter,
+                    required: Object.keys(userSearchFilter).length > 0
+                }],
+                raw: true,
+                nest: true
+            });
+            
+            allTransactions = allTransactions.concat(withdrawals.map(w => ({
+                id: w.id,
+                user: {
+                    fullName: w.user.fullName,
+                    email: w.user.email,
+                    bankAccount: w.bankAccountNumber || 'N/A',
+                    bankAccountName: w.bankAccountName || 'N/A',
+                    bankName: w.bankName || 'N/A'
+                },
+                transactionType: 'withdraw',
+                amount: parseFloat(w.amount),
+                transferType: 'out',
+                created_at: w.created_at,
+                referenceId: w.withdraw_code
+            })));
+        }
+        
+        // Sort by created_at DESC
+        allTransactions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        
+        // Pagination
+        const total = allTransactions.length;
+        const paginatedTransactions = allTransactions.slice(offset, offset + parseInt(limit));
         
         return res.status(200).json({
             success: true,
             data: {
-                transactions,
+                transactions: paginatedTransactions,
                 pagination: {
-                    total: count,
+                    total,
                     page: parseInt(page),
                     limit: parseInt(limit),
-                    totalPages: Math.ceil(count / limit)
+                    totalPages: Math.ceil(total / limit)
                 }
             }
         });
