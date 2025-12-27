@@ -1,4 +1,4 @@
-import { ExamSessionModel, ExamModel, UserModel, ClassesModel, ClassStudentModel, QuestionModel, QuestionAnswerModel, ExamPurchaseModel, TransactionHistoryModel } from "../models/index.model.js";
+import { ExamSessionModel, ExamModel, UserModel, ClassesModel, ClassStudentModel, QuestionModel, QuestionAnswerModel, ExamPurchaseModel, TransactionHistoryModel, ExamClassModel } from "../models/index.model.js";
 import { genCode } from "../utils/generateClassCode.js";
 import { finalizeSessionResult } from "../services/exam_result.service.js";
 import { updateStatusOnStart } from "../services/student_exam_status.service.js";
@@ -55,18 +55,27 @@ export const startExam = async (req, res) => {
             });
         }
 
-        // student class
-        if (exam.class_id) {
+        // student class - kiểm tra quyền truy cập qua Exam_Classes
+        const examClasses = await ExamClassModel.findAll({
+            where: { exam_id: exam.id },
+            attributes: ['class_id']
+        });
+        
+        const examClassIds = examClasses.map(ec => ec.class_id);
+        
+        // Nếu exam có lớp gắn, kiểm tra student có trong lớp không
+        if (examClassIds.length > 0) {
             const isMember = await ClassStudentModel.findOne({
                 where: {
-                    class_id: exam.class_id,
-                    student_id: student_id
+                    class_id: examClassIds,
+                    student_id: student_id,
+                    is_ban: false
                 }
             });
 
             if (!isMember) {
                 return res.status(403).send({
-                    message: 'You are not a member of this class. Cannot take this exam.'
+                    message: 'You are not a member of any class associated with this exam. Cannot take this exam.'
                 });
             }
         } else if (!exam.is_public) {
@@ -425,18 +434,30 @@ export const getSessionQuestionsForStudent = async (req, res) => {
             });
         }
 
-        if (exam && exam.class_id) {
-            const isMember = await ClassStudentModel.findOne({
-                where: {
-                    class_id: exam.class_id,
-                    student_id: student_id
-                }
+        // Kiểm tra quyền truy cập qua Exam_Classes
+        if (exam) {
+            const examClasses = await ExamClassModel.findAll({
+                where: { exam_id: exam.id },
+                attributes: ['class_id']
             });
-
-            if (!isMember) {
-                return res.status(403).send({
-                    message: 'You are not a member of this class. Cannot access this session.'
+            
+            const examClassIds = examClasses.map(ec => ec.class_id);
+            
+            // Nếu exam có lớp gắn, kiểm tra student có trong lớp không
+            if (examClassIds.length > 0) {
+                const isMember = await ClassStudentModel.findOne({
+                    where: {
+                        class_id: examClassIds,
+                        student_id: student_id,
+                        is_ban: false
+                    }
                 });
+
+                if (!isMember) {
+                    return res.status(403).send({
+                        message: 'You are not a member of any class associated with this exam. Cannot access this session.'
+                    });
+                }
             }
         }
 

@@ -157,11 +157,12 @@ export const notifyExamSubmitted = async (studentId, examId, score) => {
             attributes: ['id', 'fullName']
         });
         const exam = await ExamModel.findByPk(examId, {
-            attributes: ['id', 'title', 'created_by', 'class_id'],
+            attributes: ['id', 'title', 'created_by'],
             include: [{
                 model: ClassesModel,
-                as: 'class',
+                as: 'classes',
                 attributes: ['id', 'className', 'teacher_id'],
+                through: { attributes: [] },
                 required: false
             }]
         });
@@ -195,17 +196,21 @@ export const notifyExamSubmitted = async (studentId, examId, score) => {
             );
         }
 
-        // Nếu exam thuộc class, cũng thông báo cho teacher của class (nếu khác teacher tạo đề)
-        if (exam.class && exam.class.teacher_id && exam.class.teacher_id !== exam.created_by) {
-            notifications.push(
-                await createNotification(
-                    exam.class.teacher_id,
-                    'exam_submitted',
-                    title,
-                    message,
-                    { ...data, class_id: exam.class_id, class_name: exam.class.className }
-                )
-            );
+        // Nếu exam thuộc các class, cũng thông báo cho teacher của các class (nếu khác teacher tạo đề)
+        if (exam.classes && exam.classes.length > 0) {
+            for (const classItem of exam.classes) {
+                if (classItem.teacher_id && classItem.teacher_id !== exam.created_by) {
+                    notifications.push(
+                        await createNotification(
+                            classItem.teacher_id,
+                            'exam_submitted',
+                            title,
+                            message,
+                            { ...data, class_id: classItem.id, class_name: classItem.className }
+                        )
+                    );
+                }
+            }
         }
 
         return notifications;

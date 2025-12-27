@@ -48,13 +48,6 @@ ClassesModel.belongsToMany(UserModel, {
   as: 'students'
 });
 
-// Classes 1-N Exams (class_id có thể null) - Backward compatibility, có thể deprecated sau
-ClassesModel.hasMany(ExamModel, {
-  foreignKey: 'class_id',
-  as: 'exams',
-  onDelete: 'SET NULL'
-});
-
 // Exam N-N Classes through Exam_Classes (Many-to-many relationship)
 ExamModel.belongsToMany(ClassesModel, {
   through: ExamClassModel,
@@ -116,12 +109,6 @@ PostClassesModel.hasMany(PostCommentsModel, {
 PostCommentsModel.belongsTo(PostClassesModel, {
   foreignKey: 'post_id',
 })
-
-ExamModel.belongsTo(ClassesModel, {
-  foreignKey: 'class_id',
-  as: 'class',
-  onDelete: 'SET NULL'
-});
 
 // User(Teacher) 1-N Exams
 UserModel.hasMany(ExamModel, {

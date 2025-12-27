@@ -1,4 +1,4 @@
-import { ClassesModel, UserModel, ExamModel } from "../../models/index.model.js";
+import { ClassesModel, UserModel, ExamModel, ExamClassModel } from "../../models/index.model.js";
 import { Op } from "sequelize";
 
 // ==================== CLASS MANAGEMENT ====================
@@ -130,8 +130,8 @@ export const deleteClass = async (req, res) => {
             });
         }
         
-        // Get counts for info
-        const examCount = await ExamModel.count({ where: { class_id: id } });
+        // Get counts for info - đếm exam qua Exam_Classes
+        const examCount = await ExamClassModel.count({ where: { class_id: id } });
         
         await classData.destroy();
         

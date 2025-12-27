@@ -310,7 +310,7 @@ export const getStudentComparison = async (req, res) => {
                 {
                     model: ExamModel,
                     as: 'exam',
-                    attributes: ['id', 'title', 'total_score', 'class_id']
+                    attributes: ['id', 'title', 'total_score']
                 }
             ]
         });
@@ -354,19 +354,26 @@ export const getStudentComparison = async (req, res) => {
             reason: 'Đề thi này không thuộc lớp nào.'
         };
 
-        const examClassId = studentResult.exam?.class_id || null;
+        // Lấy class_ids từ Exam_Classes
+        const examClasses = await ExamClassModel.findAll({
+            where: { exam_id: exam_id },
+            attributes: ['class_id']
+        });
+        
+        const examClassIds = examClasses.map(ec => ec.class_id);
 
-        if (examClassId) {
+        if (examClassIds.length > 0) {
+            // Lấy tất cả students từ các lớp mà exam được gắn vào
             const classStudents = await ClassStudentModel.findAll({
                 where: {
-                    class_id: examClassId,
+                    class_id: { [Op.in]: examClassIds },
                     is_ban: false
                 },
                 attributes: ['student_id'],
                 raw: true
             });
 
-            const classStudentIds = classStudents.map((row) => row.student_id);
+            const classStudentIds = [...new Set(classStudents.map((row) => row.student_id))];
             const belongsToClass = classStudentIds.includes(student_id);
 
             if (!belongsToClass) {
@@ -428,7 +435,6 @@ export const getStudentComparison = async (req, res) => {
             exam: {
                 id: studentResult.exam.id,
                 title: studentResult.exam.title,
-                class_id: studentResult.exam.class_id,
                 total_score: studentResult.exam.total_score
             },
             student: {

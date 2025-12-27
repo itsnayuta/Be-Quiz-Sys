@@ -7,14 +7,6 @@ const ExamModel = sequelize.define('Exams', {
         autoIncrement: true,
         primaryKey: true
     },
-    class_id: {
-        type: DataTypes.INTEGER,
-        allowNull: true, // Cho phép null nếu exam là public
-        references: {
-            model: 'Classes',
-            key: 'id'
-        }
-    },
     title: {
         type: DataTypes.STRING,
         allowNull: false
