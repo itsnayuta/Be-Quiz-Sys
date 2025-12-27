@@ -14,6 +14,8 @@ export const getDashboard = async (req, res) => {
         
         const totalClasses = await ClassesModel.count();
         const totalExams = await ExamModel.count();
+        const freeExams = await ExamModel.count({ where: { is_paid: false } });
+        const paidExams = await ExamModel.count({ where: { is_paid: true } });
         
         const totalRevenue = await ExamPurchaseModel.sum('purchase_price') || 0;
         const totalPurchases = await ExamPurchaseModel.count();
@@ -35,8 +37,8 @@ export const getDashboard = async (req, res) => {
             }
         });
         
-        // User growth (last 30 days by day)
-        const userGrowth = await UserModel.findAll({
+        // Daily statistics (last 30 days by day)
+        const newUsers = await UserModel.findAll({
             where: {
                 created_at: {
                     [Op.gte]: thirtyDaysAgo
@@ -50,6 +52,62 @@ export const getDashboard = async (req, res) => {
             order: [[sequelize.fn('DATE', sequelize.col('created_at')), 'ASC']],
             raw: true
         });
+        
+        const newExams = await ExamModel.findAll({
+            where: {
+                created_at: {
+                    [Op.gte]: thirtyDaysAgo
+                }
+            },
+            attributes: [
+                [sequelize.fn('DATE', sequelize.col('created_at')), 'date'],
+                [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+            ],
+            group: [sequelize.fn('DATE', sequelize.col('created_at'))],
+            order: [[sequelize.fn('DATE', sequelize.col('created_at')), 'ASC']],
+            raw: true
+        });
+        
+        const examSessions = await ExamSessionModel.findAll({
+            where: {
+                start_time: {
+                    [Op.gte]: thirtyDaysAgo
+                }
+            },
+            attributes: [
+                [sequelize.fn('DATE', sequelize.col('start_time')), 'date'],
+                [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+            ],
+            group: [sequelize.fn('DATE', sequelize.col('start_time'))],
+            order: [[sequelize.fn('DATE', sequelize.col('start_time')), 'ASC']],
+            raw: true
+        });
+        
+        // Merge all daily stats by date
+        const dailyStatsMap = {};
+        
+        newUsers.forEach(item => {
+            if (!dailyStatsMap[item.date]) {
+                dailyStatsMap[item.date] = { date: item.date, newUsers: 0, newExams: 0, examSessions: 0 };
+            }
+            dailyStatsMap[item.date].newUsers = parseInt(item.count);
+        });
+        
+        newExams.forEach(item => {
+            if (!dailyStatsMap[item.date]) {
+                dailyStatsMap[item.date] = { date: item.date, newUsers: 0, newExams: 0, examSessions: 0 };
+            }
+            dailyStatsMap[item.date].newExams = parseInt(item.count);
+        });
+        
+        examSessions.forEach(item => {
+            if (!dailyStatsMap[item.date]) {
+                dailyStatsMap[item.date] = { date: item.date, newUsers: 0, newExams: 0, examSessions: 0 };
+            }
+            dailyStatsMap[item.date].examSessions = parseInt(item.count);
+        });
+        
+        const dailyStats = Object.values(dailyStatsMap).sort((a, b) => a.date.localeCompare(b.date));
         
         // Get popular exams (most purchases)
         const popularExams = await ExamModel.findAll({
@@ -86,13 +144,15 @@ export const getDashboard = async (req, res) => {
                     totalAdmins,
                     totalClasses,
                     totalExams,
+                    freeExams,
+                    paidExams,
                     totalRevenue: parseFloat(totalRevenue).toFixed(2),
                     totalPurchases,
                     recentUsers,
                     activeSessions
                 },
                 charts: {
-                    userGrowth
+                    dailyStats
                 },
                 popularExams
             }

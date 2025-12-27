@@ -28,6 +28,10 @@ const WithdrawHistoryModel = sequelize.define('WithdrawHistory', {
         type: DataTypes.STRING,
         allowNull: false
     },
+    bankNoaccount: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
     amount: {
         type: DataTypes.DECIMAL(19, 4),
         allowNull: false
@@ -38,9 +42,29 @@ const WithdrawHistoryModel = sequelize.define('WithdrawHistory', {
         unique: true
     },
     status: {
-        type: DataTypes.ENUM('pending', 'success', 'failed'),
+        type: DataTypes.ENUM('pending', 'approved', 'rejected'),
         allowNull: false,
         defaultValue: 'pending'
+    },
+    admin_note: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    reject_reason: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    processed_by: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+            model: 'User',
+            key: 'id'
+        }
+    },
+    processed_at: {
+        type: DataTypes.DATE,
+        allowNull: true
     }
 }, {
     timestamps: true,
