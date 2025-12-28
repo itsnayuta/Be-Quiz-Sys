@@ -39,8 +39,9 @@ export const getAllExams = async (req, res) => {
                 },
                 {
                     model: ClassesModel,
-                    as: 'class',
+                    as: 'classes',
                     attributes: ['id', 'className'],
+                    through: { attributes: [] },
                     required: false
                 },
                 {
@@ -61,7 +62,7 @@ export const getAllExams = async (req, res) => {
                     [sequelize.fn('AVG', sequelize.col('results.percentage')), 'avg_score']
                 ]
             },
-            group: ['Exams.id', 'creator.id', 'class.id'],
+            group: ['Exams.id', 'creator.id'],
             order: [[sortBy, order.toUpperCase()]],
             limit: parseInt(limit),
             offset: parseInt(offset),
@@ -117,8 +118,9 @@ export const getExamById = async (req, res) => {
                 },
                 {
                     model: ClassesModel,
-                    as: 'class',
-                    attributes: ['id', 'className']
+                    as: 'classes',
+                    attributes: ['id', 'className'],
+                    through: { attributes: [] }
                 },
                 {
                     model: QuestionModel,

@@ -139,8 +139,9 @@ export const getFavorites = async (req, res) => {
                     include: [
                         {
                             model: ClassesModel,
-                            as: 'class',
-                            attributes: ['id', 'className', 'classCode']
+                            as: 'classes',
+                            attributes: ['id', 'className', 'classCode'],
+                            through: { attributes: [] }
                         }
                     ]
                 }

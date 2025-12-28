@@ -59,12 +59,6 @@ export const getAllExamsWithStatus = async (req, res) => {
             include: [
                 {
                     model: ClassesModel,
-                    as: 'class',
-                    attributes: ['id', 'className', 'classCode'],
-                    required: false
-                },
-                {
-                    model: ClassesModel,
                     as: 'classes',
                     attributes: ['id', 'className', 'classCode'],
                     through: { attributes: [] },
@@ -165,12 +159,6 @@ export const getExamsByStatus = async (req, res) => {
                 include: [
                     {
                         model: ClassesModel,
-                        as: 'class',
-                        attributes: ['id', 'className', 'classCode'],
-                        required: false
-                    },
-                    {
-                        model: ClassesModel,
                         as: 'classes',
                         attributes: ['id', 'className', 'classCode'],
                         through: { attributes: [] },
@@ -201,12 +189,6 @@ export const getExamsByStatus = async (req, res) => {
                 include: [
                     {
                         model: ClassesModel,
-                        as: 'class',
-                        attributes: ['id', 'className', 'classCode'],
-                        required: false
-                    },
-                    {
-                        model: ClassesModel,
                         as: 'classes',
                         attributes: ['id', 'className', 'classCode'],
                         through: { attributes: [] },
@@ -231,12 +213,6 @@ export const getExamsByStatus = async (req, res) => {
                     id: { [Op.in]: filteredExamIds }
                 },
                 include: [
-                    {
-                        model: ClassesModel,
-                        as: 'class',
-                        attributes: ['id', 'className', 'classCode'],
-                        required: false
-                    },
                     {
                         model: ClassesModel,
                         as: 'classes',
