@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import sequelize from "../config/db.config.js";
-import { ExamResultModel, ExamSessionModel, StudentAnswerModel, ExamModel, QuestionModel, QuestionAnswerModel, UserModel, ClassStudentModel } from "../models/index.model.js";
+import { ExamResultModel, ExamSessionModel, StudentAnswerModel, ExamModel, QuestionModel, QuestionAnswerModel, UserModel, ClassStudentModel, ExamClassModel } from "../models/index.model.js";
 import { finalizeSessionResult } from "../services/exam_result.service.js";
 import { notifyExamSubmitted, notifyFeedbackUpdated } from "../services/notification.service.js";
 
