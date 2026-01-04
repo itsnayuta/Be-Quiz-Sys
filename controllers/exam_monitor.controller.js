@@ -1,5 +1,6 @@
 import { ExamCheatingLogModel, ExamSessionModel, ExamModel, UserModel } from "../models/index.model.js";
 import { Op } from "sequelize";
+import { getIO } from "../config/socket.config.js";
 
 // Ghi log gian lận trong lúc thi (API được gọi từ client khi phát hiện hành vi gian lận)
 export const logCheatingEvent = async (req, res) => {
@@ -66,6 +67,35 @@ export const logCheatingEvent = async (req, res) => {
             severity: severity,
             detected_at: new Date()
         });
+
+        // Lấy thông tin student để gửi qua WebSocket
+        const student = await UserModel.findByPk(student_id, {
+            attributes: ['id', 'fullName', 'email']
+        });
+
+        // Lấy thông tin session để gửi qua WebSocket
+        const sessionInfo = await ExamSessionModel.findByPk(session_id, {
+            attributes: ['id', 'code', 'start_time', 'end_time', 'status']
+        });
+
+        // Emit WebSocket event để thông báo cho teacher đang theo dõi exam này
+        try {
+            const io = getIO();
+            const logWithRelations = {
+                ...cheatingLog.toJSON(),
+                student: student,
+                session: sessionInfo
+            };
+            
+            // Emit đến room của exam cụ thể
+            io.to(`exam_${session.exam_id}`).emit('new_cheating_event', {
+                exam_id: session.exam_id,
+                log: logWithRelations
+            });
+        } catch (socketError) {
+            // Nếu WebSocket chưa khởi tạo hoặc lỗi, chỉ log, không ảnh hưởng đến response
+            console.error('Error emitting WebSocket event:', socketError);
+        }
 
         return res.status(201).send({
             message: 'Cheating event logged successfully',
