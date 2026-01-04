@@ -31,6 +31,7 @@ import { ExamPurchaseModel } from "./models/index.model.js";
 import postRoutes from "./routes/posts.routes.js";
 import path from "path";
 import { fileURLToPath } from "url";
+import { initializeSocket } from "./config/socket.config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -126,6 +127,10 @@ const PORT = process.env.PORT || 5005;
 const server = app.listen(PORT, () => {
     console.log(`Server đang chạy trên cổng ${PORT}`)
 });
+
+// Khởi tạo Socket.IO
+initializeSocket(server);
+console.log("Socket.IO initialized");
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
