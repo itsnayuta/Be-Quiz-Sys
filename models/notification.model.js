@@ -39,6 +39,10 @@ const NotificationModel = sequelize.define('Notifications', {
         allowNull: true,
         comment: 'JSON chứa thông tin chi tiết như class_id, exam_id, student_id, etc.'
     },
+    broadcast_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    },
     is_read: {
         type: DataTypes.BOOLEAN,
         allowNull: false,

@@ -12,6 +12,7 @@ import PostClassesModel from "./post_classes.model.js";
 import PostCommentsModel from "./post_comments.model.js";
 import ExamResultModel from "./exam_result.model.js";
 import NotificationModel from "./notification.model.js";
+import BroadcastNotificationModel from "./broadcast_notification.model.js";
 import RecentLoginModel from "./recent_login.model.js";
 import ExamPurchaseModel from "./exam_purchase.model.js";
 import ExamCheatingLogModel from "./exam_cheating_log.model.js";
@@ -312,6 +313,26 @@ NotificationModel.belongsTo(UserModel, {
   as: 'recipient'
 });
 
+UserModel.hasMany(BroadcastNotificationModel, {
+  foreignKey: 'admin_id',
+  as: 'broadcasts'
+});
+
+BroadcastNotificationModel.belongsTo(UserModel, {
+  foreignKey: 'admin_id',
+  as: 'sender'
+});
+
+BroadcastNotificationModel.hasMany(NotificationModel, {
+  foreignKey: 'broadcast_id',
+  as: 'notifications'
+});
+
+NotificationModel.belongsTo(BroadcastNotificationModel, {
+  foreignKey: 'broadcast_id',
+  as: 'broadcast'
+});
+
 
 //User 1-N RecentLogin
 UserModel.hasMany(RecentLoginModel, {
@@ -479,4 +500,4 @@ ExamRatingModel.belongsTo(ExamResultModel, {
   as: 'result'
 });
 
-export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel, ExamResultModel, PostClassesModel, PostCommentsModel, NotificationModel, RecentLoginModel, ExamPurchaseModel, ExamCheatingLogModel, StudentExamStatusModel, DepositHistoryModel, WithdrawHistoryModel, TransactionHistoryModel, ExamRatingModel, ExamClassModel };
+export { UserModel, ClassesModel, ClassStudentModel, ExamModel, QuestionModel, QuestionAnswerModel, ExamFavoriteModel, ExamCommentModel, ExamSessionModel, StudentAnswerModel, ExamResultModel, PostClassesModel, PostCommentsModel, NotificationModel, BroadcastNotificationModel, RecentLoginModel, ExamPurchaseModel, ExamCheatingLogModel, StudentExamStatusModel, DepositHistoryModel, WithdrawHistoryModel, TransactionHistoryModel, ExamRatingModel, ExamClassModel };

@@ -1,4 +1,4 @@
-import { NotificationModel, UserModel } from "../../models/index.model.js";
+import { NotificationModel, UserModel, BroadcastNotificationModel } from "../../models/index.model.js";
 import { Op } from "sequelize";
 
 // ==================== NOTIFICATION MANAGEMENT ====================
@@ -6,6 +6,7 @@ import { Op } from "sequelize";
 export const broadcastNotification = async (req, res) => {
     try {
         const { title, message, target_type, target_role, user_ids, priority = 'medium', link } = req.body;
+        const adminId = req.userId;
         
         // Validation
         if (!title || !message || !target_type) {
@@ -57,15 +58,27 @@ export const broadcastNotification = async (req, res) => {
                 message: "No users found matching the criteria"
             });
         }
+
+        const broadcastData = {
+            admin_id: adminId,
+            title,
+            message,
+            target_type,
+            target_role: target_role || null,
+            priority,
+            data: link ? JSON.stringify({ link, user_ids: user_ids || null }) : null,
+            recipients_count: targetUsers.length
+        };
         
-        // Create notifications for all target users
+        const broadcast = await BroadcastNotificationModel.create(broadcastData);
+ 
         const notifications = targetUsers.map(user => ({
             recipient_id: user.id,
             type: 'admin_broadcast',
             title,
             message,
             data: link ? JSON.stringify({ link }) : null,
-            priority,
+            broadcast_id: broadcast.id,
             is_read: false
         }));
         
@@ -75,6 +88,7 @@ export const broadcastNotification = async (req, res) => {
             success: true,
             message: "Notifications sent successfully",
             data: {
+                broadcastId: broadcast.id,
                 notificationsSent: createdNotifications.length,
                 targetType: target_type,
                 targetRole: target_role || null,
@@ -98,22 +112,24 @@ export const getNotificationHistory = async (req, res) => {
         
         const offset = (page - 1) * limit;
         
-        const whereClause = {
-            type: 'admin_broadcast'
-        };
+        const whereClause = {};
         
         if (date_from || date_to) {
             whereClause.created_at = {};
             if (date_from) whereClause.created_at[Op.gte] = new Date(date_from);
-            if (date_to) whereClause.created_at[Op.lte] = new Date(date_to);
+            if (date_to) {
+                const endDate = new Date(date_to);
+                endDate.setHours(23, 59, 59, 999);
+                whereClause.created_at[Op.lte] = endDate;
+            }
         }
         
-        const { count, rows } = await NotificationModel.findAndCountAll({
+        const { count, rows } = await BroadcastNotificationModel.findAndCountAll({
             where: whereClause,
             include: [
                 {
                     model: UserModel,
-                    as: 'recipient',
+                    as: 'sender',
                     attributes: ['id', 'fullName', 'email']
                 }
             ],
@@ -122,10 +138,26 @@ export const getNotificationHistory = async (req, res) => {
             offset: parseInt(offset)
         });
         
+        // Format response
+        const broadcasts = rows.map(broadcast => {
+            const broadcastData = broadcast.toJSON();
+            // Parse JSON data if exists
+            if (broadcastData.data) {
+                try {
+                    broadcastData.data = typeof broadcastData.data === 'string' 
+                        ? JSON.parse(broadcastData.data) 
+                        : broadcastData.data;
+                } catch (e) {
+                    broadcastData.data = null;
+                }
+            }
+            return broadcastData;
+        });
+        
         return res.status(200).json({
             success: true,
             data: {
-                notifications: rows,
+                broadcasts,
                 pagination: {
                     total: count,
                     page: parseInt(page),
