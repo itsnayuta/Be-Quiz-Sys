@@ -158,39 +158,48 @@ export const getClassStudents = async (req, res) => {
         const { id } = req.params;
         const { page = 1, limit = 10 } = req.query;
         
-        const offset = (page - 1) * limit;
+        const offset = (page - 1) * parseInt(limit);
         
-        const classData = await ClassesModel.findByPk(id, {
-            include: [
-                {
-                    model: UserModel,
-                    as: 'students',
-                    attributes: ['id', 'fullName', 'email', 'balance'],
-                    through: { attributes: ['joined_at'] },
-                    limit: parseInt(limit),
-                    offset: parseInt(offset)
-                }
-            ]
-        });
-        
-        if (!classData) {
+        // Check if class exists first
+        const classExists = await ClassesModel.findByPk(id);
+        if (!classExists) {
             return res.status(404).json({
                 success: false,
                 message: "Class not found"
             });
         }
         
-        const totalStudents = await classData.countStudents();
+        // Get total count
+        const totalStudents = await classExists.countStudents();
+        
+        // Get paginated students
+        const students = await classExists.getStudents({
+            attributes: ['id', 'fullName', 'email'],
+            joinTableAttributes: ['joined_at'],
+            limit: parseInt(limit),
+            offset: offset,
+            order: [['fullName', 'ASC']]
+        });
+        
+        // Format response theo đúng structure yêu cầu
+        const formattedStudents = students.map(student => ({
+            id: student.id,
+            fullName: student.fullName,
+            email: student.email,
+            Class_student: {
+                joined_at: student.Class_student?.joined_at || null
+            }
+        }));
         
         return res.status(200).json({
             success: true,
             data: {
-                students: classData.students,
+                students: formattedStudents,
                 pagination: {
-                    total: totalStudents,
                     page: parseInt(page),
                     limit: parseInt(limit),
-                    totalPages: Math.ceil(totalStudents / limit)
+                    total: totalStudents,
+                    totalPages: Math.ceil(totalStudents / parseInt(limit))
                 }
             }
         });

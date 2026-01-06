@@ -2,8 +2,6 @@ import { ExamModel, UserModel, QuestionModel, QuestionAnswerModel, ExamResultMod
 import { Op } from "sequelize";
 import sequelize from "../../config/db.config.js";
 
-// ==================== EXAM MANAGEMENT ====================
-
 export const getAllExams = async (req, res) => {
     try {
         const {
@@ -96,7 +94,6 @@ export const getAllExams = async (req, res) => {
         });
         
     } catch (error) {
-        console.error("Error getting exams:", error);
         return res.status(500).json({
             success: false,
             message: "Error getting exams",
@@ -165,7 +162,6 @@ export const getExamById = async (req, res) => {
         });
         
     } catch (error) {
-        console.error("Error getting exam:", error);
         return res.status(500).json({
             success: false,
             message: "Error getting exam details",
@@ -208,7 +204,6 @@ export const updateExam = async (req, res) => {
         });
         
     } catch (error) {
-        console.error("Error updating exam:", error);
         return res.status(500).json({
             success: false,
             message: "Error updating exam",
@@ -248,7 +243,6 @@ export const deleteExam = async (req, res) => {
         });
         
     } catch (error) {
-        console.error("Error deleting exam:", error);
         return res.status(500).json({
             success: false,
             message: "Error deleting exam",
@@ -277,22 +271,38 @@ export const getExamResults = async (req, res) => {
             limit: parseInt(limit),
             offset: parseInt(offset)
         });
+
+        const formattedResults = rows.map(result => ({
+            id: result.id,
+            session_id: result.session_id,
+            student_id: result.student_id,
+            exam_id: result.exam_id,
+            total_score: parseFloat(result.total_score) || 0,
+            correct_count: result.correct_count || 0,
+            wrong_count: result.wrong_count || 0,
+            percentage: parseFloat(result.percentage) || 0,
+            submitted_at: result.submitted_at,
+            student: result.student ? {
+                id: result.student.id,
+                fullName: result.student.fullName,
+                email: result.student.email
+            } : null
+        }));
         
         return res.status(200).json({
             success: true,
             data: {
-                results: rows,
+                results: formattedResults,
                 pagination: {
-                    total: count,
                     page: parseInt(page),
                     limit: parseInt(limit),
-                    totalPages: Math.ceil(count / limit)
+                    total: count,
+                    totalPages: Math.ceil(count / parseInt(limit))
                 }
             }
         });
         
     } catch (error) {
-        console.error("Error getting exam results:", error);
         return res.status(500).json({
             success: false,
             message: "Error getting exam results",

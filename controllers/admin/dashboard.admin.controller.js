@@ -1,4 +1,4 @@
-import { UserModel, ClassesModel, ExamModel, ExamPurchaseModel, ExamSessionModel } from "../../models/index.model.js";
+import { UserModel, ClassesModel, ExamModel, ExamPurchaseModel, ExamSessionModel, DepositHistoryModel } from "../../models/index.model.js";
 import { Op } from "sequelize";
 import sequelize from "../../config/db.config.js";
 
@@ -15,16 +15,21 @@ export const getDashboard = async (req, res) => {
         const totalExams = await ExamModel.count();
         const freeExams = await ExamModel.count({ where: { is_paid: false } });
         const paidExams = await ExamModel.count({ where: { is_paid: true } });
-        
+
         const totalRevenue = await ExamPurchaseModel.sum('purchase_price') || 0;
         const totalPurchases = await ExamPurchaseModel.count();
-        
-        // Active sessions now
+
+        const totalDeposit = await DepositHistoryModel.sum('deposit_amount', {
+            where: { deposit_status: 'success' }
+        }) || 0;
+        const totalTransactions = await DepositHistoryModel.count({
+            where: { deposit_status: 'success' }
+        });
+
         const activeSessions = await ExamSessionModel.count({
             where: { status: 'in_progress' }
         });
-        
-        // Get recent registrations (last 30 days)
+
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         
@@ -35,8 +40,7 @@ export const getDashboard = async (req, res) => {
                 }
             }
         });
-        
-        // Daily statistics (last 30 days by day)
+
         const newUsers = await UserModel.findAll({
             where: {
                 created_at: {
@@ -153,6 +157,8 @@ export const getDashboard = async (req, res) => {
                     totalExams,
                     freeExams,
                     paidExams,
+                    totalDeposit: parseFloat(totalDeposit).toFixed(2),
+                    totalTransactions,
                     totalRevenue: parseFloat(totalRevenue).toFixed(2),
                     totalPurchases,
                     recentUsers,
