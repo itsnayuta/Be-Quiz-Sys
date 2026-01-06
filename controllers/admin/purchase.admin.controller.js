@@ -249,7 +249,7 @@ export const getTransactionHistory = async (req, res) => {
         
         // Fetch deposits
         if (type === 'all' || type === 'deposit') {
-            const depositWhere = {};
+            const depositWhere = { deposit_status: 'success' }; // Only successful deposits
             if (Object.keys(dateFilter).length > 0) {
                 depositWhere.created_at = dateFilter;
             }

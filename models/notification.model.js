@@ -21,7 +21,8 @@ const NotificationModel = sequelize.define('Notifications', {
             'exam_assigned_to_class',
             'exam_submitted',
             'feedback_updated',
-            'exam_reminder'
+            'exam_reminder',
+            'admin_broadcast'
         ),
         allowNull: false
     },

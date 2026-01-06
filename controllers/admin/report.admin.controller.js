@@ -4,17 +4,23 @@ import sequelize from "../../config/db.config.js";
 
 // ==================== REPORTS & ANALYTICS ====================
 
-// Helper function to calculate period statistics
 const calculatePeriodStats = async (daysAgo, periodName) => {
+
     const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() - daysAgo);
-    
+    startDate.setDate(startDate.getDate() - daysAgo + 1);
+    startDate.setHours(0, 0, 0, 0);
+
     const prevEndDate = new Date(startDate);
+    prevEndDate.setDate(prevEndDate.getDate() - 1);
+    prevEndDate.setHours(23, 59, 59, 999);
+
     const prevStartDate = new Date(prevEndDate);
-    prevStartDate.setDate(prevStartDate.getDate() - daysAgo);
+    prevStartDate.setDate(prevStartDate.getDate() - daysAgo + 1);
+    prevStartDate.setHours(0, 0, 0, 0);
     
-    // Current period
     const currentDeposit = await DepositHistoryModel.sum('deposit_amount', {
         where: {
             deposit_status: 'success',
