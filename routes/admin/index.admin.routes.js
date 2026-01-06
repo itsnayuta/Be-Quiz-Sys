@@ -3,9 +3,6 @@ import { verifyToken, verifyAdmin } from "../../middleware/authJWT.js";
 // Dashboard
 import { getDashboard } from "../../controllers/admin/dashboard.admin.controller.js";
 
-// Stats
-
-
 // User Management
 import {
     getAllUsers,
@@ -81,19 +78,12 @@ export default function(app) {
         next();
     });
 
-    // ==================== DASHBOARD ====================
-    
     app.get(
         "/api/admin/dashboard",
         [verifyToken, verifyAdmin],
         getDashboard
     );
-    
 
-
-    // ==================== USER MANAGEMENT ====================
-    // Admin can manage users (CRUD operations and adjust balance)
-    
     app.get(
         "/api/admin/users",
         [verifyToken, verifyAdmin],

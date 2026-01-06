@@ -1,12 +1,10 @@
-import { NotificationModel, UserModel, BroadcastNotificationModel } from "../../models/index.model.js";
+import { NotificationModel, UserModel } from "../../models/index.model.js";
 import { Op } from "sequelize";
 
 // ==================== NOTIFICATION MANAGEMENT ====================
-
 export const broadcastNotification = async (req, res) => {
     try {
-        const { title, message, target_type, target_role, user_ids, priority = 'medium', link } = req.body;
-        const adminId = req.userId;
+        const { title, message, target_type, target_role, user_ids } = req.body;
 
         if (!title || !message || !target_type) {
             return res.status(400).json({
@@ -14,7 +12,7 @@ export const broadcastNotification = async (req, res) => {
                 message: "Title, message, and target_type are required"
             });
         }
-        
+
         if (!['all', 'role', 'specific_users'].includes(target_type)) {
             return res.status(400).json({
                 success: false,
@@ -23,21 +21,33 @@ export const broadcastNotification = async (req, res) => {
         }
 
         let targetUsers = [];
-        
+
         if (target_type === 'all') {
-            targetUsers = await UserModel.findAll({ attributes: ['id'] });
-        } else if (target_type === 'role') {
+            targetUsers = await UserModel.findAll({ 
+                attributes: ['id'] 
+            });
+        } 
+
+        else if (target_type === 'role') {
             if (!target_role) {
                 return res.status(400).json({
                     success: false,
                     message: "target_role is required when target_type is 'role'"
                 });
             }
+            if (!['student', 'teacher', 'admin'].includes(target_role)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid target_role. Must be: student, teacher, or admin"
+                });
+            }
             targetUsers = await UserModel.findAll({ 
                 where: { role: target_role },
                 attributes: ['id'] 
             });
-        } else if (target_type === 'specific_users') {
+        } 
+
+        else if (target_type === 'specific_users') {
             if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
                 return res.status(400).json({
                     success: false,
@@ -57,26 +67,12 @@ export const broadcastNotification = async (req, res) => {
             });
         }
 
-        const broadcastData = {
-            admin_id: adminId,
-            title,
-            message,
-            target_type,
-            target_role: target_role || null,
-            priority,
-            data: link ? JSON.stringify({ link, user_ids: user_ids || null }) : null,
-            recipients_count: targetUsers.length
-        };
-        
-        const broadcast = await BroadcastNotificationModel.create(broadcastData);
- 
         const notifications = targetUsers.map(user => ({
             recipient_id: user.id,
-            type: 'admin_broadcast',
+            type: 'exam_reminder',
             title,
             message,
-            data: link ? JSON.stringify({ link }) : null,
-            broadcast_id: broadcast.id,
+            data: null,
             is_read: false
         }));
         
@@ -86,11 +82,10 @@ export const broadcastNotification = async (req, res) => {
             success: true,
             message: "Notifications sent successfully",
             data: {
-                broadcastId: broadcast.id,
                 notificationsSent: createdNotifications.length,
                 targetType: target_type,
                 targetRole: target_role || null,
-                notificationIds: createdNotifications.map(n => n.id)
+                userIds: user_ids || null
             }
         });
         
@@ -106,12 +101,18 @@ export const broadcastNotification = async (req, res) => {
 
 export const getNotificationHistory = async (req, res) => {
     try {
-        const { page = 1, limit = 10, date_from, date_to } = req.query;
+        const { page = 1, limit = 10, date_from, date_to, type, is_read, email } = req.query;
         
         const offset = (page - 1) * limit;
         
         const whereClause = {};
-        
+        const includeClause = {
+            model: UserModel,
+            as: 'recipient',
+            attributes: ['id', 'fullName', 'email', 'role']
+        };
+
+        // Filter by date range
         if (date_from || date_to) {
             whereClause.created_at = {};
             if (date_from) whereClause.created_at[Op.gte] = new Date(date_from);
@@ -121,41 +122,52 @@ export const getNotificationHistory = async (req, res) => {
                 whereClause.created_at[Op.lte] = endDate;
             }
         }
-        
-        const { count, rows } = await BroadcastNotificationModel.findAndCountAll({
-            where: whereClause,
-            include: [
-                {
-                    model: UserModel,
-                    as: 'sender',
-                    attributes: ['id', 'fullName', 'email']
+
+        // Filter by notification type
+        if (type) {
+            whereClause.type = type;
+        }
+
+        // Filter by read status
+        if (is_read !== undefined) {
+            whereClause.is_read = is_read === 'true';
+        }
+
+        // Filter by recipient email
+        if (email) {
+            includeClause.where = {
+                email: {
+                    [Op.like]: `%${email}%`
                 }
-            ],
+            };
+        }
+        
+        const { count, rows } = await NotificationModel.findAndCountAll({
+            where: whereClause,
+            include: [includeClause],
             order: [['created_at', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset)
         });
-        
-        // Format response
-        const broadcasts = rows.map(broadcast => {
-            const broadcastData = broadcast.toJSON();
-            // Parse JSON data if exists
-            if (broadcastData.data) {
+
+        const notifications = rows.map(notification => {
+            const notificationData = notification.toJSON();
+            if (notificationData.data) {
                 try {
-                    broadcastData.data = typeof broadcastData.data === 'string' 
-                        ? JSON.parse(broadcastData.data) 
-                        : broadcastData.data;
+                    notificationData.data = typeof notificationData.data === 'string' 
+                        ? JSON.parse(notificationData.data) 
+                        : notificationData.data;
                 } catch (e) {
-                    broadcastData.data = null;
+                    notificationData.data = null;
                 }
             }
-            return broadcastData;
+            return notificationData;
         });
         
         return res.status(200).json({
             success: true,
             data: {
-                broadcasts,
+                notifications,
                 pagination: {
                     total: count,
                     page: parseInt(page),
@@ -174,4 +186,3 @@ export const getNotificationHistory = async (req, res) => {
         });
     }
 };
-

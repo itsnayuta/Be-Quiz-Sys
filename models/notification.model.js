@@ -21,8 +21,7 @@ const NotificationModel = sequelize.define('Notifications', {
             'exam_assigned_to_class',
             'exam_submitted',
             'feedback_updated',
-            'exam_reminder',
-            'admin_broadcast'
+            'exam_reminder'
         ),
         allowNull: false
     },
@@ -38,10 +37,6 @@ const NotificationModel = sequelize.define('Notifications', {
         type: DataTypes.JSON,
         allowNull: true,
         comment: 'JSON chứa thông tin chi tiết như class_id, exam_id, student_id, etc.'
-    },
-    broadcast_id: {
-        type: DataTypes.INTEGER,
-        allowNull: true
     },
     is_read: {
         type: DataTypes.BOOLEAN,
